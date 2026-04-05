@@ -149,8 +149,10 @@ jandaira/
 # Go 1.22 or higher
 go version
 
-# Set your OpenAI key
+# Optional: Set your OpenAI key via OS environment
 export OPENAI_API_KEY="sk-..."
+# NOTE: If omitted, the Interactive Wizard will securely 
+# prompt and store it in your Cloud Vault (`~/.config/jandaira/.secrets`).
 ```
 
 ### Installation

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/damiaoterto/jandaira/internal/config"
+	"github.com/damiaoterto/jandaira/internal/security"
 	"github.com/damiaoterto/jandaira/internal/swarm"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -145,11 +146,16 @@ func (s *Server) handleSetup(c *gin.Context) {
 		return
 	}
 
-	var req config.Config
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var rawReq struct {
+		config.Config
+		APIKey string `json:"api_key"`
+	}
+	if err := c.ShouldBindJSON(&rawReq); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Parâmetros inválidos para configuração."})
 		return
 	}
+
+	req := rawReq.Config
 
 	// Definir defaults se necessário
 	if req.MaxNectar == 0 {
@@ -165,6 +171,13 @@ func (s *Server) handleSetup(c *gin.Context) {
 	if err := config.Save(s.configPath, &req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao gravar configuração no disco."})
 		return
+	}
+
+	if rawReq.APIKey != "" {
+		repoDir := security.GetDefaultVaultDir()
+		if v, err := security.InitVault(repoDir); err == nil {
+			_ = v.SaveSecret("OPENAI_API_KEY", rawReq.APIKey)
+		}
 	}
 
 	// Regista a política na Queen que estava aguardando

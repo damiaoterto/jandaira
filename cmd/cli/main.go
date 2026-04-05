@@ -12,6 +12,7 @@ import (
 	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/config"
 	"github.com/damiaoterto/jandaira/internal/queue"
+	"github.com/damiaoterto/jandaira/internal/security"
 	"github.com/damiaoterto/jandaira/internal/swarm"
 	"github.com/damiaoterto/jandaira/internal/tool"
 	"github.com/damiaoterto/jandaira/internal/ui"
@@ -69,7 +70,15 @@ func main() {
 
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
-		fmt.Println("⚠️ Aviso: OPENAI_API_KEY não definida.")
+		repoDir := security.GetDefaultVaultDir()
+		if v, err := security.InitVault(repoDir); err == nil {
+			if key, err := v.GetSecret("OPENAI_API_KEY"); err == nil {
+				apiKey = key
+			}
+		}
+	}
+	if apiKey == "" {
+		fmt.Println("⚠️ Aviso: OPENAI_API_KEY não definida no cofre nem no ambiente.")
 		apiKey = "sk-mock-key-para-testes"
 	}
 

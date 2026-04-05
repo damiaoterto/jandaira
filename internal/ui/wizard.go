@@ -9,10 +9,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/damiaoterto/jandaira/internal/config"
+	"github.com/damiaoterto/jandaira/internal/security"
 )
 
 type WizardModel struct {
 	config   *config.Config
+	apiKey   string
 	index    int
 	input    textinput.Model
 	styles   *Styles
@@ -51,24 +53,31 @@ func NewWizardModel(filepath string) WizardModel {
 }
 
 func (m *WizardModel) updatePrompt() {
+	m.input.EchoMode = textinput.EchoNormal
+
 	switch m.index {
 	case 0:
-		m.input.Prompt = "1. Salvar configuração em "
-		m.input.Placeholder = m.savePath
+		m.input.EchoMode = textinput.EchoPassword
+		m.input.EchoCharacter = '*'
+		m.input.Prompt = "1. Chave da API OpenAI (sk-...) "
+		m.input.Placeholder = "Se vazio, tenta ambiente..."
 	case 1:
-		m.input.Prompt = "2. Modelo OpenAI "
-		m.input.Placeholder = m.config.Model
+		m.input.Prompt = "2. Salvar configuração em "
+		m.input.Placeholder = m.savePath
 	case 2:
-		m.input.Prompt = "3. Nome do Enxame "
-		m.input.Placeholder = m.config.SwarmName
+		m.input.Prompt = "3. Modelo OpenAI "
+		m.input.Placeholder = m.config.Model
 	case 3:
-		m.input.Prompt = "4. Limite de Néctar (Tokens) "
-		m.input.Placeholder = fmt.Sprintf("%d", m.config.MaxNectar)
+		m.input.Prompt = "4. Nome do Enxame "
+		m.input.Placeholder = m.config.SwarmName
 	case 4:
-		m.input.Prompt = "5. Modo Supervisionado? (S/n) "
-		m.input.Placeholder = "s"
+		m.input.Prompt = "5. Limite de Néctar (Tokens) "
+		m.input.Placeholder = fmt.Sprintf("%d", m.config.MaxNectar)
 	case 5:
-		m.input.Prompt = "6. Modo Isolado / Sandbox Wasm? (S/n) "
+		m.input.Prompt = "6. Modo Supervisionado? (S/n) "
+		m.input.Placeholder = "s"
+	case 6:
+		m.input.Prompt = "7. Modo Isolado / Sandbox Wasm? (S/n) "
 		m.input.Placeholder = "s"
 	}
 	m.input.SetValue("") // reset value
@@ -106,34 +115,50 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.index {
 			case 0:
 				if val != "" {
-					m.savePath = val
+					m.apiKey = val
 				}
 			case 1:
 				if val != "" {
-					m.config.Model = val
+					m.savePath = val
 				}
 			case 2:
 				if val != "" {
-					m.config.SwarmName = val
+					m.config.Model = val
 				}
 			case 3:
+				if val != "" {
+					m.config.SwarmName = val
+				}
+			case 4:
 				if val != "" {
 					n, err := strconv.Atoi(val)
 					if err == nil && n > 0 {
 						m.config.MaxNectar = n
 					}
 				}
-			case 4:
-				m.config.Supervised = strings.ToLower(val) != "n"
 			case 5:
-				m.config.Isolated = strings.ToLower(val) != "n"
+				if val != "" {
+					m.config.Supervised = strings.ToLower(val) != "n"
+				}
+			case 6:
+				if val != "" {
+					m.config.Isolated = strings.ToLower(val) != "n"
+				}
 			}
 
 			m.index++
 
 			// Finished asking?
-			if m.index > 5 {
+			if m.index > 6 {
 				m.done = true
+
+				if m.apiKey != "" {
+					repoDir := security.GetDefaultVaultDir()
+					if v, err := security.InitVault(repoDir); err == nil {
+						_ = v.SaveSecret("OPENAI_API_KEY", m.apiKey)
+					}
+				}
+
 				err := config.Save(m.savePath, m.config)
 				if err != nil {
 					m.err = err

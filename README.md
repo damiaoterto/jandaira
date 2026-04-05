@@ -149,8 +149,10 @@ jandaira/
 # Go 1.22 ou superior
 go version
 
-# Defina sua chave da OpenAI
+# Opcional: Defina via variável de ambiente (Pipeline/CI)
 export OPENAI_API_KEY="sk-..."
+# NOTA: O Assistente Interativo (Wizard) também pode solicitar essa chave
+# no primeiro acesso e guardá-la de forma oculta no Cloud Vault nativo (`~/.config/jandaira/.secrets`).
 ```
 
 ### Instalação

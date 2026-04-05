@@ -149,8 +149,10 @@ jandaira/
 # Go 1.22 或更高版本
 go version
 
-# 设置你的 OpenAI 密钥
+# 可选：通过操作系统环境变量设置您的 OpenAI 密钥
 export OPENAI_API_KEY="sk-..."
+# 注意：如果未提供，交互式向导将在首次运行时安全地提示您输入
+# 并将其存储在您的本地 Cloud Vault（`~/.config/jandaira/.secrets`）中。
 ```
 
 ### 安装
