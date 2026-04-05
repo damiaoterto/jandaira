@@ -8,6 +8,8 @@ A **multi-agent autonomous framework** written in Go, inspired by the collective
 
 > 🌐 **English** · [Português](../README.md) · [中文](README.zh.md) · [Русский](README.ru.md)
 
+> 📦 [**Download pre-built binaries**](https://github.com/damiaoterto/jandaira/releases) — Linux, Windows, macOS and Raspberry Pi
+
 ---
 
 ## 📖 Why "Jandaira"?
@@ -151,6 +153,26 @@ export OPENAI_API_KEY="sk-..."
 
 ### Installation
 
+#### Option 1 — Download pre-built binary *(recommended)*
+
+Visit the [**Releases**](https://github.com/damiaoterto/jandaira/releases) page and download the binary for your system:
+
+| System | File |
+|---|---|
+| Linux x86-64 | `jandaira-linux` |
+| Windows | `jandaira-windows.exe` / `jandaira-setup.exe` |
+| macOS | `jandaira-macos` |
+| Raspberry Pi 4/5 | `jandaira-linux-arm64` |
+| Raspberry Pi 2/3 | `jandaira-linux-armv7` |
+
+```bash
+# Linux/macOS: make it executable
+chmod +x jandaira-linux
+./jandaira-linux
+```
+
+#### Option 2 — Build from source
+
 ```bash
 git clone https://github.com/damiaoterto/jandaira.git
 cd jandaira
@@ -281,7 +303,7 @@ This simulates a secure IPC channel, where even if one agent is compromised, it 
 
 - [ ] Web Interface (Svelte + `go:embed`)
 - [ ] Multi-LLM support (Anthropic, Gemini, Ollama)
-- [ ] Full Wasm sandbox per agent (isolated VFS via `wazero`)
+- [x] Full Wasm sandbox per agent (isolated VFS via `wazero`)
 - [ ] Nectar metrics dashboard (cost per mission)
 - [ ] PDF/Markdown report export
 

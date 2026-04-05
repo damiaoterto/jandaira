@@ -8,6 +8,8 @@
 
 > 🌐 [English](README.en.md) · [Português](../README.md) · **中文** · [Русский](README.ru.md)
 
+> 📦 [**下载预编译二进制文件**](https://github.com/damiaoterto/jandaira/releases) — Linux、Windows、macOS 和 Raspberry Pi
+
 ---
 
 ## 📖 为什么叫"Jandaira"？
@@ -151,6 +153,26 @@ export OPENAI_API_KEY="sk-..."
 
 ### 安装
 
+#### 方式 1 — 下载预编译二进制文件 *（推荐）*
+
+访问 [**Releases**](https://github.com/damiaoterto/jandaira/releases) 页面，下载适合你系统的二进制文件：
+
+| 系统 | 文件 |
+|---|---|
+| Linux x86-64 | `jandaira-linux` |
+| Windows | `jandaira-windows.exe` / `jandaira-setup.exe` |
+| macOS | `jandaira-macos` |
+| Raspberry Pi 4/5 | `jandaira-linux-arm64` |
+| Raspberry Pi 2/3 | `jandaira-linux-armv7` |
+
+```bash
+# Linux/macOS：添加执行权限
+chmod +x jandaira-linux
+./jandaira-linux
+```
+
+#### 方式 2 — 从源码构建
+
 ```bash
 git clone https://github.com/damiaoterto/jandaira.git
 cd jandaira
@@ -281,7 +303,7 @@ workflow := []swarm.Specialist{researcher, writer}
 
 - [ ] Web 界面（Svelte + `go:embed`）
 - [ ] 多 LLM 支持（Anthropic、Gemini、Ollama）
-- [ ] 每个智能体的完整 Wasm 沙箱（通过 `wazero` 的隔离 VFS）
+- [x] 每个智能体的完整 Wasm 沙箱（通过 `wazero` 的隔离 VFS）
 - [ ] 花蜜指标仪表板（每次任务的成本）
 - [ ] PDF/Markdown 报告导出
 

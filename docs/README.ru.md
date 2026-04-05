@@ -8,6 +8,8 @@
 
 > 🌐 [English](README.en.md) · [Português](../README.md) · [中文](README.zh.md) · **Русский**
 
+> 📦 [**Скачать скомпилированные бинарные файлы**](https://github.com/damiaoterto/jandaira/releases) — Linux, Windows, macOS и Raspberry Pi
+
 ---
 
 ## 📖 Почему «Jandaira»?
@@ -154,6 +156,26 @@ export OPENAI_API_KEY="sk-..."
 
 ### Установка
 
+#### Вариант 1 — Скачать скомпилированный бинарный файл *(рекомендуется)*
+
+Перейдите на страницу [**Releases**](https://github.com/damiaoterto/jandaira/releases) и загрузите бинарный файл для вашей системы:
+
+| Система | Файл |
+|---|---|
+| Linux x86-64 | `jandaira-linux` |
+| Windows | `jandaira-windows.exe` / `jandaira-setup.exe` |
+| macOS | `jandaira-macos` |
+| Raspberry Pi 4/5 | `jandaira-linux-arm64` |
+| Raspberry Pi 2/3 | `jandaira-linux-armv7` |
+
+```bash
+# Linux/macOS: сделать файл исполняемым
+chmod +x jandaira-linux
+./jandaira-linux
+```
+
+#### Вариант 2 — Сборка из исходного кода
+
 ```bash
 git clone https://github.com/damiaoterto/jandaira.git
 cd jandaira
@@ -284,7 +306,7 @@ workflow := []swarm.Specialist{researcher, writer}
 
 - [ ] Веб-интерфейс (Svelte + `go:embed`)
 - [ ] Поддержка нескольких LLM (Anthropic, Gemini, Ollama)
-- [ ] Полная Wasm-песочница на агент (изолированная VFS через `wazero`)
+- [x] Полная Wasm-песочница на агент (изолированная VFS через `wazero`)
 - [ ] Дашборд метрик нектара (стоимость на миссию)
 - [ ] Экспорт отчётов в PDF/Markdown
 
