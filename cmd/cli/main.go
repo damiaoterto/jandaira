@@ -75,6 +75,12 @@ func main() {
 		p.Send(ui.StatusMsg(msg))
 	}
 
+	// INTERRUPÇÃO DO APICULTOR: quando RequiresApproval=true, a Rainha pausa
+	// e envia um PermissionMsg para a UI que exibe o painel de aprovação.
+	newQuen.AskPermissionFunc = func(toolName string, args string) {
+		p.Send(ui.PermissionMsg{ToolName: toolName, Args: args})
+	}
+
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Erro na interface do enxame: %v", err)
 		os.Exit(1)

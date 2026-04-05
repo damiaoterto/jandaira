@@ -28,25 +28,28 @@ type Specialist struct {
 
 // Queen is the central orchestrator of the hive.
 type Queen struct {
-	Queue       *queue.GroupQueue
-	Brain       brain.Brain
-	Honeycomb   brain.Honeycomb
-	mu          sync.RWMutex
-	Policies    map[string]Policy
-	NectarUsage map[string]int
-	Tools       map[string]tool.Tool
-	LogFunc     func(string)
+	Queue             *queue.GroupQueue
+	Brain             brain.Brain
+	Honeycomb         brain.Honeycomb
+	mu                sync.RWMutex
+	Policies          map[string]Policy
+	NectarUsage       map[string]int
+	Tools             map[string]tool.Tool
+	LogFunc           func(string)
+	AskPermissionFunc func(toolName string, args string)
+	ApprovalChan      chan bool
 }
 
 // NewQueen initializes the hive's sovereign.
 func NewQueen(q *queue.GroupQueue, b brain.Brain, h brain.Honeycomb) *Queen {
 	return &Queen{
-		Queue:       q,
-		Brain:       b,
-		Honeycomb:   h,
-		Policies:    make(map[string]Policy),
-		NectarUsage: make(map[string]int),
-		Tools:       make(map[string]tool.Tool),
+		Queue:        q,
+		Brain:        b,
+		Honeycomb:    h,
+		Policies:     make(map[string]Policy),
+		NectarUsage:  make(map[string]int),
+		Tools:        make(map[string]tool.Tool),
+		ApprovalChan: make(chan bool, 1), // buffered so the UI never deadlocks
 	}
 }
 
@@ -91,7 +94,6 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 		Task: func(ctx context.Context) error {
 			contextAccumulator := fmt.Sprintf("Objetivo Original: %s\n\n", goal)
 
-			// Gera uma chave de sessão única para a comunicação deste workflow
 			sessionKey, err := security.GenerateKey()
 			if err != nil {
 				errChan <- fmt.Errorf("falha ao gerar chave criptográfica: %w", err)
@@ -101,7 +103,6 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 			for _, specialist := range pipeline {
 				q.logf("👑 [Queen] Delegando a fase para: %s", specialist.Name)
 
-				// Criptografa o contexto antes de enviar para a Especialista (simulando canal seguro IPC)
 				encryptedPayload, err := security.Seal(sessionKey, contextAccumulator)
 				if err != nil {
 					errChan <- fmt.Errorf("falha ao criptografar payload: %w", err)
@@ -162,10 +163,9 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 		}
 	}
 
-	// A Especialista descriptografa o contexto que recebeu da Rainha
 	taskContext, err := security.Open(sessionKey, encryptedTaskContext)
 	if err != nil {
-		return "", fmt.Errorf("falha de segurança na especialista: impossível descriptografar o contexto: %w", err)
+		return "", fmt.Errorf("falha de segurança: impossível descriptografar o contexto: %w", err)
 	}
 
 	messages := []brain.Message{
@@ -186,7 +186,6 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 		if len(toolCalls) == 0 {
 			q.logf("✅ [%s] Tarefa concluída.", spec.Name)
 
-			// A Especialista criptografa o resultado final antes de devolver à Rainha
 			encryptedFinalResponse, err := security.Seal(sessionKey, response)
 			if err != nil {
 				return "", fmt.Errorf("falha ao criptografar resposta final: %w", err)
@@ -200,19 +199,31 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 		})
 
 		for _, call := range toolCalls {
-			q.logf("🐝 [%s] Usando a ferramenta: %s", spec.Name, call.Name)
-
 			tool, exists := q.Tools[call.Name]
 			var toolResult string
 
 			if !exists {
 				toolResult = "Erro: Ferramenta não encontrada."
 			} else {
-				res, err := tool.Execute(ctx, call.ArgsJSON)
-				if err != nil {
-					toolResult = fmt.Sprintf("Erro ao executar: %v", err)
+				approved := true
+				if p.RequiresApproval {
+					if q.AskPermissionFunc != nil {
+						q.AskPermissionFunc(call.Name, call.ArgsJSON)
+						approved = <-q.ApprovalChan
+					}
+				}
+
+				if !approved {
+					q.logf("🚫 Ação bloqueada pelo Apicultor: %s", call.Name)
+					toolResult = fmt.Sprintf("ERRO: O Apicultor (usuário humano) NEGOU a permissão para você executar '%s'. Aborte esta tentativa.", call.Name)
 				} else {
-					toolResult = res
+					q.logf("🐝 [%s] Executando a ferramenta: %s", spec.Name, call.Name)
+					res, err := tool.Execute(ctx, call.ArgsJSON)
+					if err != nil {
+						toolResult = fmt.Sprintf("Erro ao executar: %v", err)
+					} else {
+						toolResult = res
+					}
 				}
 			}
 
