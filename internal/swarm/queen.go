@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/queue"
 	"github.com/damiaoterto/jandaira/internal/security"
 )
@@ -19,15 +20,17 @@ type Policy struct {
 // Queen is the central orchestrator of the hive.
 type Queen struct {
 	Queue       *queue.GroupQueue
+	Brain       brain.Brain // The AI brain integrated into the Queen
 	mu          sync.RWMutex
 	Policies    map[string]Policy // Policies indexed by GroupID
 	NectarUsage map[string]int    // Current consumption per group
 }
 
 // NewQueen initializes the hive's sovereign.
-func NewQueen(q *queue.GroupQueue) *Queen {
+func NewQueen(q *queue.GroupQueue, b brain.Brain) *Queen {
 	return &Queen{
 		Queue:       q,
+		Brain:       b,
 		Policies:    make(map[string]Policy),
 		NectarUsage: make(map[string]int),
 	}
@@ -67,9 +70,30 @@ func (q *Queen) DispatchGoal(ctx context.Context, groupID string, goal string) e
 
 // executeGoal is the internal logic where the Queen manages the worker's flight.
 func (q *Queen) executeGoal(ctx context.Context, groupID string, goal string, p Policy) error {
-	fmt.Printf("[Queen] Orchestrating goal for %s: %s\n", groupID, goal)
+	fmt.Printf("[Queen] Orchestrating goal for %s using %s: %s\n", groupID, q.Brain.GetProviderName(), goal)
 
-	// 1. Initialize Sandbox if isolation is required
+	// 1. AI Reasoning: The Queen thinks about how to achieve the goal
+	messages := []brain.Message{
+		{Role: brain.RoleSystem, Content: "You are the Queen of the Jandaira hive. Orchestrate the agents to achieve the user's goal."},
+		{Role: brain.RoleUser, Content: goal},
+	}
+
+	response, report, err := q.Brain.Chat(ctx, messages)
+	if err != nil {
+		return fmt.Errorf("brain failure: %w", err)
+	}
+
+	// 2. Track Nectar usage based on actual LLM report
+	q.mu.Lock()
+	q.NectarUsage[groupID] += report.TotalTokens
+	currentUsage := q.NectarUsage[groupID]
+	q.mu.Unlock()
+
+	if currentUsage > p.MaxNectar {
+		return fmt.Errorf("nectar limit exceeded for group %s (used %d/%d)", groupID, currentUsage, p.MaxNectar)
+	}
+
+	// 3. Initialize Sandbox if isolation is required for execution
 	if p.Isolate {
 		cell, err := security.NewCell(ctx)
 		if err != nil {
@@ -77,23 +101,11 @@ func (q *Queen) executeGoal(ctx context.Context, groupID string, goal string, p 
 		}
 		defer cell.Close(ctx)
 
-		// Here we would normally:
-		// - Load the worker's logic (Wasm)
-		// - Register Host Functions (Tools)
-		// - Run the worker
+		fmt.Printf("[Queen] Isolated cell created for worker logic execution.\n")
+		// Logic to run the worker code based on the AI response would go here
 	}
 
-	// 2. Track Nectar (Simplified for now)
-	q.mu.Lock()
-	q.NectarUsage[groupID] += 10 // Mock consumption
-	currentUsage := q.NectarUsage[groupID]
-	q.mu.Unlock()
-
-	if currentUsage > p.MaxNectar {
-		return fmt.Errorf("nectar limit exceeded for group %s", groupID)
-	}
-
-	fmt.Printf("[Queen] Goal processed for %s. Nectar used: %d/%d\n", groupID, currentUsage, p.MaxNectar)
+	fmt.Printf("[Queen] Goal processed. Response: %s\n", response)
 	return nil
 }
 

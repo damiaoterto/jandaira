@@ -28,20 +28,20 @@ func NewOpenAIBrain(apiKey string, model string) *OpenAIBrain {
 func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message) (string, ConsumptionReport, error) {
 	url := "https://api.openai.com/v1/chat/completions"
 
-	payload := map[string]any{
+	payload := map[string]interface{}{
 		"model":    b.Model,
 		"messages": messages,
 	}
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return "", ConsumptionReport{}, fmt.Errorf("failed to encode payload: %w", err)
+		return "", ConsumptionReport{}, fmt.Errorf("erro ao codificar payload: %w", err)
 	}
 
 	var body []byte
 	var lastErr error
 
-	// Exponential Backoff implementation: 5 attempts (1s, 2s, 4s, 8s, 16s)
+	// Implementação de Exponential Backoff: 5 tentativas (1s, 2s, 4s, 8s, 16s)
 	for i := 0; i < 5; i++ {
 		if i > 0 {
 			waitTime := time.Duration(math.Pow(2, float64(i-1))) * time.Second
@@ -58,7 +58,7 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message) (string, Con
 		}
 
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", b.APIKey))
+		req.Header.Set("Authorization", "Bearer "+b.APIKey)
 
 		resp, err := b.Client.Do(req)
 		if err != nil {
@@ -69,9 +69,9 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message) (string, Con
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ = io.ReadAll(resp.Body)
-			lastErr = fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+			lastErr = fmt.Errorf("API retornou status %d: %s", resp.StatusCode, string(body))
 			if resp.StatusCode >= 500 {
-				continue // Retry only on server errors
+				continue // Tentar novamente apenas em erros de servidor
 			}
 			break
 		}
@@ -109,5 +109,46 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message) (string, Con
 		}
 	}
 
-	return "", ConsumptionReport{}, fmt.Errorf("failed after multiple attempts: %v", lastErr)
+	return "", ConsumptionReport{}, fmt.Errorf("falha após várias tentativas: %v", lastErr)
+}
+
+func (b *OpenAIBrain) Embed(ctx context.Context, text string) ([]float32, error) {
+	url := "https://api.openai.com/v1/embeddings"
+
+	payload := map[string]interface{}{
+		"model": "text-embedding-3-small",
+		"input": text,
+	}
+
+	jsonData, _ := json.Marshal(payload)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+b.APIKey)
+
+	resp, err := b.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	if len(result.Data) > 0 {
+		return result.Data[0].Embedding, nil
+	}
+
+	return nil, fmt.Errorf("nenhum embedding retornado")
+}
+
+// GetProviderName retorna o identificador do provedor.
+func (b *OpenAIBrain) GetProviderName() string {
+	return "openai"
 }
