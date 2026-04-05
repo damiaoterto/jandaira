@@ -301,6 +301,98 @@ workflow := []swarm.Specialist{researcher, writer}
 
 ---
 
+## 🌐 API 参考（服务器模式）
+
+使用 `./jandaira-api --port 8080` 启动 HTTP 服务器，提供以下路由：
+
+### REST 路由
+
+| 方法 | 路由 | 描述 |
+|---|---|---|
+| `POST` | `/api/dispatch` | 向蜂群提交目标并执行 |
+| `GET` | `/api/tools` | 列出所有可用工具及其参数 |
+| `GET` | `/api/agents` | 列出已配置工作流中的专家 |
+| `GET` | `/ws` | 打开 WebSocket 连接以接收实时事件 |
+
+#### `POST /api/dispatch`
+
+```json
+// 请求
+{ "goal": "创建一个将两个数字相加的 Go 文件", "group_id": "enxame-alfa" }
+
+// 响应 202
+{ "message": "Mission dispatched to the swarm. Follow progress via WebSocket." }
+```
+
+#### `GET /api/tools`
+
+```json
+// 响应 200
+{
+  "tools": [
+    { "name": "write_file", "description": "创建或覆盖文件", "parameters": { ... } },
+    { "name": "execute_code", "description": "在 Wasm 沙箱中执行代码", "parameters": { ... } }
+  ]
+}
+```
+
+#### `GET /api/agents`
+
+```json
+// 响应 200
+{
+  "agents": [
+    { "name": "Wasm 开发者", "system_prompt": "...", "allowed_tools": ["write_file", "search_memory"] },
+    { "name": "质量审计员", "system_prompt": "...", "allowed_tools": ["execute_code", "read_file"] }
+  ]
+}
+```
+
+---
+
+### WebSocket 事件（`/ws`）
+
+所有事件通过同一个 WebSocket 通道以 JSON 格式传输。养蜂人**不再需要 REST 路由**——审批完全通过 WebSocket 处理。
+
+#### 服务器 → 前端
+
+| `type` | 触发时机 | 相关字段 |
+|---|---|---|
+| `status` | 来自蜂王的进度消息 | `message` |
+| `agent_change` | 专家接管流水线 | `agent` |
+| `tool_start` | 工具即将执行 | `agent`, `tool`, `args` |
+| `approval_request` | AI 要使用受限工具 | `id`, `tool`, `args` |
+| `result` | 工作流最终报告 | `message` |
+| `error` | 失败或超时 | `message` |
+
+```json
+// 前端收到的事件示例：
+{ "type": "status",           "message": "🚀 Queen received the goal and is starting the swarm..." }
+{ "type": "agent_change",     "agent": "Wasm 开发者" }
+{ "type": "tool_start",       "agent": "Wasm 开发者", "tool": "write_file", "args": "{...}" }
+{ "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
+{ "type": "result",           "message": "# 最终报告\n..." }
+{ "type": "error",            "message": "Mission timeout reached." }
+```
+
+#### 前端 → 服务器
+
+| `type` | 何时发送 | 必填字段 |
+|---|---|---|
+| `approve` | 养蜂人对 `approval_request` 的响应 | `id`, `approved` |
+
+```json
+// 批准操作：
+{ "type": "approve", "id": "req-1712345678901", "approved": true }
+
+// 拒绝操作：
+{ "type": "approve", "id": "req-1712345678901", "approved": false }
+```
+
+> **注意：** `id` 字段必须与 `approval_request` 中收到的 `id` 完全匹配。无效或已处理的 ID 将返回 `error` 事件。
+
+---
+
 ## 🛣️ 路线图
 
 - [ ] Web 界面（Svelte + `go:embed`）

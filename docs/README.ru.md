@@ -304,6 +304,98 @@ workflow := []swarm.Specialist{researcher, writer}
 
 ---
 
+## 🌐 Справочник API (Серверный режим)
+
+Запустите HTTP-сервер командой `./jandaira-api --port 8080`. Доступны следующие маршруты:
+
+### REST-маршруты
+
+| Метод | Маршрут | Описание |
+|---|---|---|
+| `POST` | `/api/dispatch` | Отправляет цель рою для выполнения |
+| `GET` | `/api/tools` | Возвращает список всех доступных инструментов и их параметров |
+| `GET` | `/api/agents` | Возвращает список специалистов в настроенном рабочем процессе |
+| `GET` | `/ws` | Открывает WebSocket-соединение для событий в реальном времени |
+
+#### `POST /api/dispatch`
+
+```json
+// Запрос
+{ "goal": "Создай файл Go, который складывает два числа", "group_id": "enxame-alfa" }
+
+// Ответ 202
+{ "message": "Mission dispatched to the swarm. Follow progress via WebSocket." }
+```
+
+#### `GET /api/tools`
+
+```json
+// Ответ 200
+{
+  "tools": [
+    { "name": "write_file", "description": "Создаёт или перезаписывает файл", "parameters": { ... } },
+    { "name": "execute_code", "description": "Выполняет код в Wasm-песочнице", "parameters": { ... } }
+  ]
+}
+```
+
+#### `GET /api/agents`
+
+```json
+// Ответ 200
+{
+  "agents": [
+    { "name": "Wasm-разработчик", "system_prompt": "...", "allowed_tools": ["write_file", "search_memory"] },
+    { "name": "Аудитор качества", "system_prompt": "...", "allowed_tools": ["execute_code", "read_file"] }
+  ]
+}
+```
+
+---
+
+### События WebSocket (`/ws`)
+
+Все события передаются как JSON по одному WebSocket-каналу. Пасечнику **больше не нужны REST-маршруты** — одобрения обрабатываются полностью через WebSocket.
+
+#### Сервер → Фронтенд
+
+| `type` | Когда срабатывает | Важные поля |
+|---|---|---|
+| `status` | Сообщения о прогрессе от Королевы | `message` |
+| `agent_change` | Специалист берёт управление конвейером | `agent` |
+| `tool_start` | Инструмент готовится к выполнению | `agent`, `tool`, `args` |
+| `approval_request` | ИИ хочет использовать ограниченный инструмент | `id`, `tool`, `args` |
+| `result` | Итоговый отчёт рабочего процесса | `message` |
+| `error` | Ошибка или тайм-аут | `message` |
+
+```json
+// Примеры событий, получаемых фронтендом:
+{ "type": "status",           "message": "🚀 Queen received the goal and is starting the swarm..." }
+{ "type": "agent_change",     "agent": "Wasm-разработчик" }
+{ "type": "tool_start",       "agent": "Wasm-разработчик", "tool": "write_file", "args": "{...}" }
+{ "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
+{ "type": "result",           "message": "# Итоговый отчёт\n..." }
+{ "type": "error",            "message": "Mission timeout reached." }
+```
+
+#### Фронтенд → Сервер
+
+| `type` | Когда отправлять | Обязательные поля |
+|---|---|---|
+| `approve` | Ответ пасечника на `approval_request` | `id`, `approved` |
+
+```json
+// Одобрить действие:
+{ "type": "approve", "id": "req-1712345678901", "approved": true }
+
+// Запретить действие:
+{ "type": "approve", "id": "req-1712345678901", "approved": false }
+```
+
+> **Примечание:** Поле `id` должно точно совпадать с `id`, полученным в `approval_request`. Недействительные или уже обработанные ID возвращают событие `error`.
+
+---
+
 ## 🛣️ Дорожная карта
 
 - [ ] Веб-интерфейс (Svelte + `go:embed`)

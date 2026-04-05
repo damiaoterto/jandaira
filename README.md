@@ -301,6 +301,98 @@ Isso simula um canal IPC seguro, onde mesmo que um agente seja comprometido, ele
 
 ---
 
+## 🌐 API Reference (Modo Servidor)
+
+O servidor HTTP é iniciado com `./jandaira-api --port 8080` e expõe as seguintes rotas:
+
+### Rotas REST
+
+| Método | Rota | Descrição |
+|---|---|---|
+| `POST` | `/api/dispatch` | Envia um objetivo ao enxame para execução |
+| `GET` | `/api/tools` | Lista todas as ferramentas disponíveis e seus parâmetros |
+| `GET` | `/api/agents` | Lista os especialistas do workflow configurado |
+| `GET` | `/ws` | Abre uma conexão WebSocket para eventos em tempo real |
+
+#### `POST /api/dispatch`
+
+```json
+// Request
+{ "goal": "Crie um arquivo Go que some dois números", "group_id": "enxame-alfa" }
+
+// Response 202
+{ "message": "Mission dispatched to the swarm. Follow progress via WebSocket." }
+```
+
+#### `GET /api/tools`
+
+```json
+// Response 200
+{
+  "tools": [
+    { "name": "write_file", "description": "Cria ou sobrescreve um arquivo", "parameters": { ... } },
+    { "name": "execute_code", "description": "Executa código em sandbox Wasm", "parameters": { ... } }
+  ]
+}
+```
+
+#### `GET /api/agents`
+
+```json
+// Response 200
+{
+  "agents": [
+    { "name": "Desenvolvedora Wasm", "system_prompt": "...", "allowed_tools": ["write_file", "search_memory"] },
+    { "name": "Auditora de Qualidade", "system_prompt": "...", "allowed_tools": ["execute_code", "read_file"] }
+  ]
+}
+```
+
+---
+
+### Eventos WebSocket (`/ws`)
+
+Todos os eventos trafegam como JSON pelo mesmo canal WebSocket. O Apicultor **não precisa mais de rotas REST** — a aprovação é feita inteiramente pelo WebSocket.
+
+#### Servidor → Frontend
+
+| `type` | Quando é disparado | Campos relevantes |
+|---|---|---|
+| `status` | Mensagens de progresso da Rainha | `message` |
+| `agent_change` | Um especialista assume o controle do pipeline | `agent` |
+| `tool_start` | Uma ferramenta está prestes a ser executada | `agent`, `tool`, `args` |
+| `approval_request` | A IA quer usar uma ferramenta bloqueada | `id`, `tool`, `args` |
+| `result` | Relatório final do workflow | `message` |
+| `error` | Falha ou timeout | `message` |
+
+```json
+// Exemplos de eventos recebidos pelo frontend:
+{ "type": "status",     "message": "🚀 Queen received the goal and is starting the swarm..." }
+{ "type": "agent_change", "agent": "Desenvolvedora Wasm" }
+{ "type": "tool_start", "agent": "Desenvolvedora Wasm", "tool": "write_file", "args": "{...}" }
+{ "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
+{ "type": "result",     "message": "# Relatório Final\n..." }
+{ "type": "error",      "message": "Mission timeout reached." }
+```
+
+#### Frontend → Servidor
+
+| `type` | Quando enviar | Campos obrigatórios |
+|---|---|---|
+| `approve` | Resposta do Apicultor a um `approval_request` | `id`, `approved` |
+
+```json
+// Aprovar a ação:
+{ "type": "approve", "id": "req-1712345678901", "approved": true }
+
+// Negar a ação:
+{ "type": "approve", "id": "req-1712345678901", "approved": false }
+```
+
+> **Nota:** O campo `id` deve corresponder exatamente ao `id` recebido no `approval_request`. IDs inválidos ou já processados retornam um evento `error`.
+
+---
+
 ## 🛣️ Roadmap
 
 - [ ] Interface Web (Svelte + `go:embed`)

@@ -301,6 +301,98 @@ This simulates a secure IPC channel, where even if one agent is compromised, it 
 
 ---
 
+## 🌐 API Reference (Server Mode)
+
+Start the HTTP server with `./jandaira-api --port 8080`. The following routes are available:
+
+### REST Routes
+
+| Method | Route | Description |
+|---|---|---|
+| `POST` | `/api/dispatch` | Submits a goal to the swarm for execution |
+| `GET` | `/api/tools` | Lists all available tools and their parameters |
+| `GET` | `/api/agents` | Lists the specialists in the configured workflow |
+| `GET` | `/ws` | Opens a WebSocket connection for real-time events |
+
+#### `POST /api/dispatch`
+
+```json
+// Request
+{ "goal": "Create a Go file that sums two numbers", "group_id": "enxame-alfa" }
+
+// Response 202
+{ "message": "Mission dispatched to the swarm. Follow progress via WebSocket." }
+```
+
+#### `GET /api/tools`
+
+```json
+// Response 200
+{
+  "tools": [
+    { "name": "write_file", "description": "Creates or overwrites a file", "parameters": { ... } },
+    { "name": "execute_code", "description": "Executes code in a Wasm sandbox", "parameters": { ... } }
+  ]
+}
+```
+
+#### `GET /api/agents`
+
+```json
+// Response 200
+{
+  "agents": [
+    { "name": "Wasm Developer", "system_prompt": "...", "allowed_tools": ["write_file", "search_memory"] },
+    { "name": "Quality Auditor", "system_prompt": "...", "allowed_tools": ["execute_code", "read_file"] }
+  ]
+}
+```
+
+---
+
+### WebSocket Events (`/ws`)
+
+All events are exchanged as JSON over the same WebSocket channel. The Beekeeper **no longer needs REST routes** — approvals are handled entirely via WebSocket.
+
+#### Server → Frontend
+
+| `type` | When fired | Relevant fields |
+|---|---|---|
+| `status` | Progress messages from the Queen | `message` |
+| `agent_change` | A specialist takes control of the pipeline | `agent` |
+| `tool_start` | A tool is about to be executed | `agent`, `tool`, `args` |
+| `approval_request` | The AI wants to use a gated tool | `id`, `tool`, `args` |
+| `result` | Final workflow report | `message` |
+| `error` | Failure or timeout | `message` |
+
+```json
+// Example events received by the frontend:
+{ "type": "status",           "message": "🚀 Queen received the goal and is starting the swarm..." }
+{ "type": "agent_change",     "agent": "Wasm Developer" }
+{ "type": "tool_start",       "agent": "Wasm Developer", "tool": "write_file", "args": "{...}" }
+{ "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
+{ "type": "result",           "message": "# Final Report\n..." }
+{ "type": "error",            "message": "Mission timeout reached." }
+```
+
+#### Frontend → Server
+
+| `type` | When to send | Required fields |
+|---|---|---|
+| `approve` | Beekeeper response to an `approval_request` | `id`, `approved` |
+
+```json
+// Approve the action:
+{ "type": "approve", "id": "req-1712345678901", "approved": true }
+
+// Deny the action:
+{ "type": "approve", "id": "req-1712345678901", "approved": false }
+```
+
+> **Note:** The `id` field must exactly match the `id` received in the `approval_request`. Invalid or already-processed IDs return an `error` event.
+
+---
+
 ## 🛣️ Roadmap
 
 - [ ] Web Interface (Svelte + `go:embed`)
