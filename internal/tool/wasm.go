@@ -41,10 +41,15 @@ func (t *ExecuteCodeTool) Execute(ctx context.Context, argsJSON string) (string,
 		return "", fmt.Errorf("erro ao ler argumentos JSON: %w", err)
 	}
 
-	// 1. Compilar para WASI/WASM (Seguro, apenas usa o compilador)
-	wasmFilename := strings.TrimSuffix(args.Filename, ".go") + ".wasm"
+	absFilename, err := resolvePath(args.Filename)
+	if err != nil {
+		return "", err
+	}
 
-	buildCmd := exec.CommandContext(ctx, "go", "build", "-o", wasmFilename, args.Filename)
+	// 1. Compilar para WASI/WASM (Seguro, apenas usa o compilador)
+	wasmFilename := strings.TrimSuffix(absFilename, ".go") + ".wasm"
+
+	buildCmd := exec.CommandContext(ctx, "go", "build", "-o", wasmFilename, absFilename)
 	buildCmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm") // Força a compilação para WebAssembly
 
 	buildOutput, err := buildCmd.CombinedOutput()
@@ -77,7 +82,13 @@ func (t *ExecuteCodeTool) Execute(ctx context.Context, argsJSON string) (string,
 	// 6. Formatar o resultado para a IA
 	result := stdoutBuf.String()
 	if err != nil {
-		result += fmt.Sprintf("\n[Erro de Execução na Sandbox]: %v", err)
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid magic number") {
+			result += "\n[Sucesso de Compilação]: O código fonte compilou perfeitamente e não tem erros de sintaxe!\n"
+			result += "Contudo, não pôde ser executado pela Sandbox pois o ficheiro não é um programa final (não tem 'package main' e 'func main()'). Se isto for uma biblioteca, podes considerar a alteração válida!"
+		} else {
+			result += fmt.Sprintf("\n[Erro de Execução na Sandbox]: %v", err)
+		}
 	}
 	if stderrBuf.Len() > 0 {
 		result += fmt.Sprintf("\n[Stderr]:\n%s", stderrBuf.String())

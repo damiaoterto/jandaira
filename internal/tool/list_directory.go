@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 type Tool interface {
@@ -14,12 +16,30 @@ type Tool interface {
 	Execute(ctx context.Context, argsJSON string) (string, error)
 }
 
+func resolvePath(inputPath string) (string, error) {
+	if strings.HasPrefix(inputPath, "~") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			inputPath = strings.Replace(inputPath, "~", home, 1)
+		}
+	}
+	
+	if filepath.IsAbs(inputPath) {
+		return inputPath, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("não foi possível obter o diretório atual (CWD): %w", err)
+	}
+	return filepath.Join(cwd, inputPath), nil
+}
+
 type ListDirectoryTool struct{}
 
 func (t *ListDirectoryTool) Name() string { return "list_directory" }
 
 func (t *ListDirectoryTool) Description() string {
-	return "Lista os ficheiros e pastas de um diretório específico."
+	return "Lista os ficheiros e pastas de um diretório específico, sempre preenchendo o caminho de forma resolvida a partir do diretório atual."
 }
 
 func (t *ListDirectoryTool) Parameters() map[string]interface{} {
@@ -48,12 +68,17 @@ func (t *ListDirectoryTool) Execute(ctx context.Context, argsJSON string) (strin
 		path = "."
 	}
 
-	entries, err := os.ReadDir(path)
+	absPath, err := resolvePath(path)
 	if err != nil {
-		return "", fmt.Errorf("erro ao ler diretorio '%s': %w", path, err)
+		return "", err
 	}
 
-	result := fmt.Sprintf("Conteudo de '%s':\n", path)
+	entries, err := os.ReadDir(absPath)
+	if err != nil {
+		return "", fmt.Errorf("erro ao ler diretorio '%s': %w", absPath, err)
+	}
+
+	result := fmt.Sprintf("Conteudo de '%s':\n", absPath)
 	for _, e := range entries {
 		result += fmt.Sprintf("- %s (IsDir: %t)\n", e.Name(), e.IsDir())
 	}
@@ -65,7 +90,7 @@ type ReadFileTool struct{}
 func (t *ReadFileTool) Name() string { return "read_file" }
 
 func (t *ReadFileTool) Description() string {
-	return "Lê o conteúdo de um ficheiro de texto."
+	return "Lê o conteúdo de um ficheiro de texto, resolvendo-o a partir do CWD."
 }
 
 func (t *ReadFileTool) Parameters() map[string]any {
@@ -89,10 +114,15 @@ func (t *ReadFileTool) Execute(ctx context.Context, argsJSON string) (string, er
 		return "", fmt.Errorf("erro ao ler argumentos JSON: %w", err)
 	}
 
-	// Lendo o arquivo real do disco!
-	content, err := os.ReadFile(args.Filename)
+	absPath, err := resolvePath(args.Filename)
 	if err != nil {
-		return "", fmt.Errorf("erro ao ler arquivo '%s': %w", args.Filename, err)
+		return "", err
+	}
+
+	// Lendo o arquivo real do disco!
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return "", fmt.Errorf("erro ao ler arquivo '%s': %w", absPath, err)
 	}
 
 	return string(content), nil
@@ -103,7 +133,7 @@ type WriteFileTool struct{}
 func (t *WriteFileTool) Name() string { return "write_file" }
 
 func (t *WriteFileTool) Description() string {
-	return "Escreve conteúdo num ficheiro. Se o ficheiro não existir, será criado. Se existir, será totalmente substituído."
+	return "Escreve conteúdo num ficheiro, resolvendo-o a partir do CWD. Se o ficheiro não existir, será criado. Se existir, será totalmente substituído."
 }
 
 func (t *WriteFileTool) Parameters() map[string]interface{} {
@@ -132,12 +162,15 @@ func (t *WriteFileTool) Execute(ctx context.Context, argsJSON string) (string, e
 		return "", fmt.Errorf("erro ao ler argumentos JSON: %w", err)
 	}
 
-	// Atenção: Num ambiente Sandbox (Wasm) real, verificaríamos se o path é seguro (ex: não sair do diretório permitido)
-	// Como estamos a rodar no host para este teste, escrevemos diretamente.
-	err := os.WriteFile(args.Filename, []byte(args.Content), 0644)
+	absPath, err := resolvePath(args.Filename)
 	if err != nil {
-		return "", fmt.Errorf("erro ao escrever ficheiro '%s': %w", args.Filename, err)
+		return "", err
 	}
 
-	return fmt.Sprintf("Ficheiro '%s' escrito com sucesso no disco.", args.Filename), nil
+	err = os.WriteFile(absPath, []byte(args.Content), 0644)
+	if err != nil {
+		return "", fmt.Errorf("erro ao escrever ficheiro '%s': %w", absPath, err)
+	}
+
+	return fmt.Sprintf("Ficheiro '%s' escrito com sucesso no disco.", absPath), nil
 }

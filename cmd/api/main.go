@@ -82,14 +82,14 @@ func main() {
 
 	desenvolvedora := swarm.Specialist{
 		Name:         "Desenvolvedora Wasm",
-		SystemPrompt: `Você é a Desenvolvedora. Escreva código com 'write_file'. Pode usar 'search_memory'.`,
-		AllowedTools: []string{"write_file", "search_memory"},
+		SystemPrompt: `Você é a Desenvolvedora da colmeia. USE 'read_file' para ler os arquivos e 'write_file' para criar/editar. NUNCA diga que não consegue ler, USE A FERRAMENTA. Guarde conhecimento com 'search_memory' e 'store_memory'.`,
+		AllowedTools: []string{"write_file", "read_file", "list_directory", "search_memory", "store_memory"},
 	}
 
 	auditora := swarm.Specialist{
 		Name:         "Auditora de Qualidade",
-		SystemPrompt: `Você é a Auditora. Teste o código com 'execute_code' e leia falhas com 'read_file'.`,
-		AllowedTools: []string{"execute_code", "read_file"},
+		SystemPrompt: `Você é a Auditora. USE 'read_file' OBRIGATORIAMENTE para inspecionar os arquivos gerados. Teste o código quando relevante com 'execute_code'. Nunca especule as falhas, leia o conteúdo real!`,
+		AllowedTools: []string{"execute_code", "read_file", "list_directory", "search_memory"},
 	}
 
 	workflow := []swarm.Specialist{desenvolvedora, auditora}
