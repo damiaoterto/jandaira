@@ -19,7 +19,7 @@ type Policy struct {
 	RequiresApproval bool
 }
 
-// Specialist representa uma abelha com um papel específico e ferramentas limitadas.
+// Specialist represents a bee with a specific role and a restricted set of tools.
 type Specialist struct {
 	Name         string
 	SystemPrompt string
@@ -64,7 +64,7 @@ func (q *Queen) logf(format string, args ...interface{}) {
 	}
 }
 
-// EquipTool dá à Rainha o conhecimento de uma nova ferramenta
+// EquipTool registers a new tool with the Queen.
 func (q *Queen) EquipTool(t tool.Tool) {
 	q.Tools[t.Name()] = t
 }
@@ -77,7 +77,7 @@ func (q *Queen) RegisterSwarm(groupID string, p Policy) {
 	q.NectarUsage[groupID] = 0
 }
 
-// DispatchWorkflow executa uma cadeia de especialistas (Passagem de Bastão)
+// DispatchWorkflow runs a chain of specialists in sequence (baton-pass pipeline).
 func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal string, pipeline []Specialist) (<-chan string, <-chan error) {
 	resultChan := make(chan string, 1)
 	errChan := make(chan error, 1)
@@ -94,11 +94,11 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 	job := queue.Job{
 		ID: fmt.Sprintf("workflow-%s", groupID), GroupID: groupID, MaxRetries: 1,
 		Task: func(ctx context.Context) error {
-			contextAccumulator := fmt.Sprintf("Objetivo Original: %s\n\n", goal)
+			contextAccumulator := fmt.Sprintf("Original Goal: %s\n\n", goal)
 
 			sessionKey, err := security.GenerateKey()
 			if err != nil {
-				errChan <- fmt.Errorf("falha ao gerar chave criptográfica: %w", err)
+				errChan <- fmt.Errorf("failed to generate cryptographic key: %w", err)
 				return err
 			}
 
@@ -110,32 +110,32 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 
 				encryptedPayload, err := security.Seal(sessionKey, contextAccumulator)
 				if err != nil {
-					errChan <- fmt.Errorf("falha ao criptografar payload: %w", err)
+					errChan <- fmt.Errorf("failed to encrypt payload: %w", err)
 					return err
 				}
-				q.logf("🔐 Payload criptografado (%d bytes) enviado para %s", len(encryptedPayload), specialist.Name)
+				q.logf("🔐 Encrypted payload (%d bytes) sent to %s", len(encryptedPayload), specialist.Name)
 
 				encryptedOutput, err := q.runSpecialist(ctx, groupID, specialist, encryptedPayload, sessionKey, policy)
 				if err != nil {
-					errChan <- fmt.Errorf("a especialista %s falhou: %w", specialist.Name, err)
+					errChan <- fmt.Errorf("specialist %s failed: %w", specialist.Name, err)
 					return err
 				}
 
-				// Descriptografa a resposta recebida da Especialista
+				// Decrypt the response received from the Specialist
 				decryptedOutput, err := security.Open(sessionKey, encryptedOutput)
 				if err != nil {
-					errChan <- fmt.Errorf("falha ao descriptografar resposta de %s: %w", specialist.Name, err)
+					errChan <- fmt.Errorf("failed to decrypt response from %s: %w", specialist.Name, err)
 					return err
 				}
-				q.logf("🔓 Resposta descriptografada recebida com sucesso de %s", specialist.Name)
+				q.logf("🔓 Decrypted response successfully received from %s", specialist.Name)
 
 				contextAccumulator += fmt.Sprintf("\n--- Trabalho de %s ---\n%s\n", specialist.Name, decryptedOutput)
 			}
 
-			q.logf("👑 [Queen] Workflow completo! O enxame finalizou.")
+			q.logf("👑 [Queen] Workflow complete! The swarm has finished.")
 
 			if q.Honeycomb != nil {
-				q.logf("💾 A guardar o conhecimento no LanceDB...")
+				q.logf("💾 Saving knowledge to vector memory...")
 				vector, err := q.Brain.Embed(ctx, contextAccumulator)
 				if err == nil {
 					docID := fmt.Sprintf("workflow-%d", time.Now().Unix())
@@ -147,7 +147,7 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 				}
 			}
 
-			// Envia o relatório final para a interface UI
+			// Send the final report to the UI
 			resultChan <- contextAccumulator
 			return nil
 		},
@@ -157,7 +157,7 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 	return resultChan, errChan
 }
 
-// runSpecialist executa o Loop de Agente para uma abelha específica com as suas ferramentas restritas
+// runSpecialist runs the agent loop for a specific specialist with its restricted tools.
 func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Specialist, encryptedTaskContext string, sessionKey []byte, p Policy) (string, error) {
 	var availableTools []brain.ToolDefinition
 	for _, toolName := range spec.AllowedTools {
@@ -170,7 +170,7 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 
 	taskContext, err := security.Open(sessionKey, encryptedTaskContext)
 	if err != nil {
-		return "", fmt.Errorf("falha de segurança: impossível descriptografar o contexto: %w", err)
+		return "", fmt.Errorf("security failure: cannot decrypt context: %w", err)
 	}
 
 	messages := []brain.Message{
@@ -189,11 +189,11 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 		q.mu.Unlock()
 
 		if len(toolCalls) == 0 {
-			q.logf("✅ [%s] Tarefa concluída.", spec.Name)
+			q.logf("✅ [%s] Task complete.", spec.Name)
 
 			encryptedFinalResponse, err := security.Seal(sessionKey, response)
 			if err != nil {
-				return "", fmt.Errorf("falha ao criptografar resposta final: %w", err)
+				return "", fmt.Errorf("failed to encrypt final response: %w", err)
 			}
 
 			return encryptedFinalResponse, nil
@@ -208,27 +208,27 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 			var toolResult string
 
 			if !exists {
-				toolResult = "Erro: Ferramenta não encontrada."
+				toolResult = "Error: tool not found."
 			} else {
 				approved := true
 				if p.RequiresApproval {
 					if q.AskPermissionFunc != nil {
 						q.AskPermissionFunc(call.Name, call.ArgsJSON)
-						approved = <-q.ApprovalChan
+						approved = <-q.ApprovalChan // blocks until the UI responds
 					}
 				}
 
 				if !approved {
-					q.logf("🚫 Ação bloqueada pelo Apicultor: %s", call.Name)
-					toolResult = fmt.Sprintf("ERRO: O Apicultor (usuário humano) NEGOU a permissão para você executar '%s'. Aborte esta tentativa.", call.Name)
+					q.logf("🚫 Action blocked by the Beekeeper: %s", call.Name)
+					toolResult = fmt.Sprintf("ERROR: The Beekeeper (human user) DENIED permission to execute '%s'. Abort this attempt.", call.Name)
 				} else {
 					if q.ToolStartFunc != nil {
 						q.ToolStartFunc(spec.Name, call.Name, call.ArgsJSON)
 					}
-					q.logf("🐝 [%s] Executando a ferramenta: %s", spec.Name, call.Name)
+					q.logf("🐝 [%s] Executing tool: %s", spec.Name, call.Name)
 					res, err := tool.Execute(ctx, call.ArgsJSON)
 					if err != nil {
-						toolResult = fmt.Sprintf("Erro ao executar: %v", err)
+						toolResult = fmt.Sprintf("Error executing tool: %v", err)
 					} else {
 						toolResult = res
 					}
@@ -241,7 +241,7 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 		}
 	}
 
-	return "", fmt.Errorf("limite de reflexões atingido pela especialista %s", spec.Name)
+	return "", fmt.Errorf("reflection limit reached for specialist %s", spec.Name)
 }
 
 // DispatchGoal receives a high-level goal and assigns it to the workers via the queue.
@@ -264,14 +264,14 @@ func (q *Queen) DispatchGoal(ctx context.Context, groupID string, goal string) e
 
 // executeGoal is the internal logic where the Queen manages the worker's flight.
 func (q *Queen) executeGoal(ctx context.Context, groupID string, goal string, p Policy) error {
-	fmt.Printf("[Queen] Inciando análise autónoma para o grupo %s\n", groupID)
+	fmt.Printf("[Queen] Starting autonomous analysis for group %s\n", groupID)
 
 	messages := []brain.Message{
-		{Role: brain.RoleSystem, Content: "És a operária da colmeia Jandaira. Deves resolver o objetivo usando as ferramentas fornecidas. Analisa os ficheiros passo a passo."},
+		{Role: brain.RoleSystem, Content: "You are a worker of the Jandaira hive. Solve the goal using the provided tools. Analyse files step by step."},
 		{Role: brain.RoleUser, Content: goal},
 	}
 
-	// Converter o mapa de ferramentas para a estrutura do Brain
+	// Convert the tool map to the Brain's ToolDefinition slice
 	var availableTools []brain.ToolDefinition
 	for _, t := range q.Tools {
 		availableTools = append(availableTools, brain.ToolDefinition{
@@ -279,8 +279,8 @@ func (q *Queen) executeGoal(ctx context.Context, groupID string, goal string, p 
 		})
 	}
 
-	// Loop de Agente: Continuar enquanto a IA quiser usar ferramentas
-	for i := 0; i < 5; i++ { // Limite de 5 passos para evitar loops infinitos
+	// Agent loop: keep running while the AI wants to use tools
+	for i := 0; i < 5; i++ { // max 5 steps to prevent infinite loops
 		response, toolCalls, report, err := q.Brain.Chat(ctx, messages, availableTools)
 		if err != nil {
 			return err
@@ -290,39 +290,39 @@ func (q *Queen) executeGoal(ctx context.Context, groupID string, goal string, p 
 		q.NectarUsage[groupID] += report.TotalTokens
 		q.mu.Unlock()
 
-		// Se a IA respondeu com texto e NÃO pediu ferramentas, a missão está cumprida.
+		// If the AI replied with text and did NOT request tools, the mission is done.
 		if len(toolCalls) == 0 {
-			fmt.Printf("\n[Queen] Relatório Final:\n%s\n", response)
+			fmt.Printf("\n[Queen] Final Report:\n%s\n", response)
 			return nil
 		}
 
-		// Adicionar o pensamento da IA ao histórico (importante para manter o contexto)
+		// Append the AI's reasoning to the history (required to preserve context)
 		messages = append(messages, brain.Message{
 			Role: brain.RoleAssistant, Content: response, ToolCalls: toolCalls,
 		})
 
-		// A IA decidiu usar ferramentas! Vamos executá-las.
+		// The AI decided to use tools — execute them.
 		for _, call := range toolCalls {
-			fmt.Printf("🐝 [Operária] Acionando ferramenta: %s\n", call.Name)
+			fmt.Printf("🐝 [Worker] Invoking tool: %s\n", call.Name)
 
 			tool, exists := q.Tools[call.Name]
 			var toolResult string
 
 			if !exists {
-				toolResult = "Erro: Ferramenta desconhecida."
+				toolResult = "Error: unknown tool."
 			} else {
-				// Aqui executariamos a ferramenta (Idealmente dentro do sandbox Wasm!)
+				// Execute the tool (ideally inside a Wasm sandbox)
 				res, err := tool.Execute(ctx, call.ArgsJSON)
 				if err != nil {
-					toolResult = fmt.Sprintf("Erro ao executar: %v", err)
+					toolResult = fmt.Sprintf("Error executing tool: %v", err)
 				} else {
 					toolResult = res
 				}
 			}
 
-			fmt.Printf("📦 [Resultado] Ferramenta '%s' devolveu dados ao cérebro.\n", call.Name)
+			fmt.Printf("📦 [Result] Tool '%s' returned data to the brain.\n", call.Name)
 
-			// Enviar o resultado da ferramenta de volta para a IA analisar
+			// Send the tool result back to the AI for analysis
 			messages = append(messages, brain.Message{
 				Role:       brain.RoleTool,
 				ToolCallID: call.ID,
@@ -331,7 +331,7 @@ func (q *Queen) executeGoal(ctx context.Context, groupID string, goal string, p 
 		}
 	}
 
-	return fmt.Errorf("Limite de reflexões atingido. O enxame ficou confuso.")
+	return fmt.Errorf("reflection limit reached. The swarm got confused.")
 }
 
 // AskPermission implements the Human-in-the-loop (HIL) check.
