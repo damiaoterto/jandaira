@@ -3,6 +3,7 @@ package brain
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -48,11 +49,15 @@ func NewLocalVectorDB(dbPath string) (*LocalVectorDB, error) {
 		collections: make(map[string]map[string]Document),
 	}
 
-	// Tenta carregar do disco se existir
+	// Load existing data from disk if the file already exists.
+	// The parent directory is created automatically on the first save.
 	if _, err := os.Stat(dbPath); err == nil {
 		data, err := os.ReadFile(dbPath)
-		if err == nil {
-			_ = json.Unmarshal(data, &db.collections)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read memory file %q: %w", dbPath, err)
+		}
+		if err := json.Unmarshal(data, &db.collections); err != nil {
+			return nil, fmt.Errorf("memory file %q is corrupted (invalid JSON): %w", dbPath, err)
 		}
 	}
 	return db, nil
