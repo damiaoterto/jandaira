@@ -5,21 +5,31 @@ on:
 
 jobs:
   build:
-    name: Build for ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.artifact_name }}
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
-          - os: ubuntu-latest
+          # ── Targets nativos ──────────────────────────────────────────
+          - runner: ubuntu-latest
             artifact_name: jandaira-linux
-          - os: windows-latest
+          - runner: windows-latest
             artifact_name: jandaira-windows.exe
             setup_name: jandaira-setup.exe
-          - os: macos-latest
+          - runner: macos-latest
             artifact_name: jandaira-macos
+          # ── Raspberry Pi (cross-compile a partir do ubuntu-latest) ───
+          - runner: ubuntu-latest
+            artifact_name: jandaira-linux-arm64
+            goos: linux
+            goarch: arm64
+          - runner: ubuntu-latest
+            artifact_name: jandaira-linux-armv7
+            goos: linux
+            goarch: arm
+            goarm: "7"
 
     steps:
       - uses: actions/checkout@v4
@@ -30,11 +40,15 @@ jobs:
           go-version: "1.22"
 
       - name: Build Binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
         run: go build -o ${{ matrix.artifact_name }} ./cmd/cli/main.go
 
       # PASSO EXCLUSIVO PARA WINDOWS: Criar o instalador
       - name: Create Windows Setup
-        if: matrix.os == 'windows-latest'
+        if: matrix.runner == 'windows-latest' && matrix.goarch == ''
         run: |
           # Cria um arquivo de script básico para o Inno Setup (.iss)
           echo '[Setup]' > installer.iss
@@ -56,7 +70,7 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           # No Windows, vamos subir tanto o binário quanto o setup
-          if ("${{ matrix.os }}" -eq "windows-latest") {
+          if ("${{ matrix.runner }}" -eq "windows-latest") {
             gh release upload "$env:RELEASE_TAG" "${{ matrix.artifact_name }}" "${{ matrix.setup_name }}"
           } else {
             gh release upload "$env:RELEASE_TAG" "${{ matrix.artifact_name }}"
