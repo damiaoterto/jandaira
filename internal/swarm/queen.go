@@ -34,6 +34,7 @@ type Queen struct {
 	Policies    map[string]Policy
 	NectarUsage map[string]int
 	Tools       map[string]tool.Tool
+	LogFunc     func(string)
 }
 
 // NewQueen initializes the hive's sovereign.
@@ -45,6 +46,15 @@ func NewQueen(q *queue.GroupQueue, b brain.Brain, h brain.Honeycomb) *Queen {
 		Policies:    make(map[string]Policy),
 		NectarUsage: make(map[string]int),
 		Tools:       make(map[string]tool.Tool),
+	}
+}
+
+func (q *Queen) logf(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	if q.LogFunc != nil {
+		q.LogFunc(msg)
+	} else {
+		fmt.Println(msg)
 	}
 }
 
@@ -62,37 +72,40 @@ func (q *Queen) RegisterSwarm(groupID string, p Policy) {
 }
 
 // DispatchWorkflow executa uma cadeia de especialistas (Passagem de Bastão)
-func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal string, pipeline []Specialist) error {
+func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal string, pipeline []Specialist) (<-chan string, <-chan error) {
+	resultChan := make(chan string, 1)
+	errChan := make(chan error, 1)
+
 	q.mu.RLock()
 	policy, exists := q.Policies[groupID]
 	q.mu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("swarm group %s not registered", groupID)
+		errChan <- fmt.Errorf("swarm group %s not registered", groupID)
+		return resultChan, errChan
 	}
 
 	job := queue.Job{
 		ID: fmt.Sprintf("workflow-%s", groupID), GroupID: groupID, MaxRetries: 1,
 		Task: func(ctx context.Context) error {
-			// O "Contexto" vai acumular o trabalho de cada especialista para passar para a próxima
 			contextAccumulator := fmt.Sprintf("Objetivo Original: %s\n\n", goal)
 
 			for _, specialist := range pipeline {
-				fmt.Printf("\n👑 [Queen] Delegando a fase para a Especialista: %s\n", specialist.Name)
+				q.logf("👑 [Queen] Delegando a fase para: %s", specialist.Name)
 
 				output, err := q.runSpecialist(ctx, groupID, specialist, contextAccumulator, policy)
 				if err != nil {
-					return fmt.Errorf("a especialista %s falhou: %w", specialist.Name, err)
+					errChan <- fmt.Errorf("a especialista %s falhou: %w", specialist.Name, err)
+					return err
 				}
 
-				// Passa o bastão: adiciona o trabalho desta abelha ao contexto da próxima
-				contextAccumulator += fmt.Sprintf("\n--- Trabalho concluído por %s ---\n%s\n", specialist.Name, output)
+				contextAccumulator += fmt.Sprintf("\n--- Trabalho de %s ---\n%s\n", specialist.Name, output)
 			}
 
-			fmt.Printf("\n👑 [Queen] Workflow completo! O enxame finalizou a cadeia de tarefas.\n")
+			q.logf("👑 [Queen] Workflow completo! O enxame finalizou.")
 
-			// Salvar o relatório final na memória se existir Honeycomb
 			if q.Honeycomb != nil {
+				q.logf("💾 A guardar o conhecimento no LanceDB...")
 				vector, err := q.Brain.Embed(ctx, contextAccumulator)
 				if err == nil {
 					docID := fmt.Sprintf("workflow-%d", time.Now().Unix())
@@ -101,16 +114,17 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 						"content": contextAccumulator,
 						"type":    "multi_agent_report",
 					})
-					fmt.Println("💾 [Queen] Conhecimento colaborativo guardado na memória do LanceDB.")
 				}
 			}
 
+			// Envia o relatório final para a interface UI
+			resultChan <- contextAccumulator
 			return nil
 		},
 	}
 
 	q.Queue.Submit(ctx, job)
-	return nil
+	return resultChan, errChan
 }
 
 // runSpecialist executa o Loop de Agente para uma abelha específica com as suas ferramentas restritas
