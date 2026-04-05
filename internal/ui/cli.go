@@ -13,13 +13,99 @@ import (
 	"github.com/damiaoterto/jandaira/internal/swarm"
 )
 
+// ── Palette ─────────────────────────────────────────────────────────────────
+const (
+	colorGold        = "#F5A623"
+	colorAmber       = "#FFD166"
+	colorQueenPink   = "#F78FA7"
+	colorWorkerGreen = "#06D6A0"
+	colorUserCyan    = "#48CAE4"
+	colorErrorRed    = "#EF476F"
+	colorMuted       = "#6C6C8A"
+	colorBorder      = "#2D2B55"
+)
+
+// ── Base styles ─────────────────────────────────────────────────────────────
 var (
-	TitleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Bold(true).MarginBottom(1)
-	QueenStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF69B4")).Bold(true)
-	WorkerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
-	ErrorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000"))
-	SystemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Italic(true)
-	InputPrompt = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Render("🐝 Objetivo: ")
+	// Banner box
+	bannerBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color(colorGold)).
+			Padding(0, 3).
+			MarginBottom(1)
+
+	bannerTitleStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(colorAmber)).
+				Bold(true)
+
+	bannerSubStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorMuted)).
+			Italic(true)
+
+	// Message bubbles
+	userLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorUserCyan)).
+			Bold(true)
+
+	userMsgStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#E0F4FF")).
+			BorderLeft(true).
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(lipgloss.Color(colorUserCyan)).
+			PaddingLeft(1)
+
+	queenLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorQueenPink)).
+			Bold(true)
+
+	queenMsgStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFF0F5")).
+			BorderLeft(true).
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(lipgloss.Color(colorQueenPink)).
+			PaddingLeft(1)
+
+	errorLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorErrorRed)).
+			Bold(true)
+
+	errorMsgStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFE0E6")).
+			BorderLeft(true).
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(lipgloss.Color(colorErrorRed)).
+			PaddingLeft(1)
+
+	// Divider
+	dividerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorBorder))
+
+	// Status / spinner line
+	StatusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorAmber)).
+			Italic(true)
+
+	// Input box
+	inputBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(colorGold)).
+			Padding(0, 1)
+
+	inputLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorAmber)).
+			Bold(true)
+
+	// Footer hint
+	footerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorMuted)).
+			Italic(true)
+
+	// Legacy aliases kept so nothing outside this file breaks
+	TitleStyle  = bannerTitleStyle
+	QueenStyle  = queenLabelStyle
+	WorkerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorWorkerGreen))
+	ErrorStyle  = errorLabelStyle
+	SystemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted)).Italic(true)
+	InputPrompt = inputLabelStyle.Render("🐝 Objetivo: ")
 )
 
 type ResultMsg struct {
@@ -39,21 +125,40 @@ type CLIModel struct {
 	StatusLine string
 }
 
+// divider returns a horizontal rule string.
+func divider() string {
+	return dividerStyle.Render(strings.Repeat("─", 58))
+}
+
 // View implements [tea.Model].
 func (m CLIModel) View() string {
 	var b strings.Builder
 
-	b.WriteString(TitleStyle.Render("\n🍯 Jandaira Swarm OS 🍯\n"))
+	// ── Banner ──────────────────────────────────────────────
+	banner := lipgloss.JoinVertical(
+		lipgloss.Center,
+		bannerTitleStyle.Render("🍯  Jandaira Swarm OS  🍯"),
+		bannerSubStyle.Render("Swarm Intelligence · Powered by Go"),
+	)
+	b.WriteString(bannerBoxStyle.Render(banner))
+	b.WriteString("\n")
 
+	// ── History ─────────────────────────────────────────────
 	for _, msg := range m.History {
-		b.WriteString(msg + "\n\n")
+		b.WriteString(msg)
+		b.WriteString("\n")
+		b.WriteString(divider())
+		b.WriteString("\n")
 	}
 
+	// ── Spinner or Input ────────────────────────────────────
 	if m.IsWorking {
-		b.WriteString(fmt.Sprintf("%s %s\n\n", m.Spinner.View(), SystemStyle.Render(m.StatusLine)))
+		spinnerLine := fmt.Sprintf("%s  %s", m.Spinner.View(), StatusStyle.Render(m.StatusLine))
+		b.WriteString("\n" + spinnerLine + "\n")
 	} else {
-		b.WriteString(InputPrompt + m.TextInput.View())
-		b.WriteString(SystemStyle.Render("(Pressione Esc ou Ctrl+C para sair)"))
+		inputContent := inputLabelStyle.Render("🐝 Objetivo") + "  " + m.TextInput.View()
+		b.WriteString("\n" + inputBoxStyle.Render(inputContent) + "\n")
+		b.WriteString(footerStyle.Render("  ↵ enviar   esc / ctrl+c sair") + "\n")
 	}
 
 	return b.String()
@@ -64,18 +169,22 @@ func InitialModel(q *swarm.Queen, p []swarm.Specialist) CLIModel {
 	ti.Placeholder = "Diga à Rainha o que deseja fazer..."
 	ti.Focus()
 	ti.CharLimit = 256
-	ti.Width = 60
+	ti.Width = 52
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGold))
+	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAmber))
 
 	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	s.Spinner = spinner.Points
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGold))
+
+	welcome := SystemStyle.Render("✦ A Colmeia Jandaira despertou. As operárias aguardam as suas ordens.")
 
 	return CLIModel{
 		Queen:     q,
 		Pipeline:  p,
 		TextInput: ti,
 		Spinner:   s,
-		History:   []string{SystemStyle.Render("A Colmeia Jandaira despertou. As operárias aguardam as suas ordens.")},
+		History:   []string{welcome},
 		IsWorking: false,
 	}
 }
@@ -99,7 +208,8 @@ func (m CLIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			goal := m.TextInput.Value()
 			m.TextInput.SetValue("")
-			m.History = append(m.History, fmt.Sprintf("👤 %s", goal))
+			userBubble := userLabelStyle.Render("👤 Você") + "\n" + userMsgStyle.Render(goal)
+			m.History = append(m.History, userBubble)
 			m.IsWorking = true
 			m.StatusLine = "A Rainha está a analisar a tarefa..."
 			cmds = append(cmds, m.runGoal(goal))
@@ -107,9 +217,11 @@ func (m CLIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ResultMsg:
 		m.IsWorking = false
 		if msg.err != nil {
-			m.History = append(m.History, ErrorStyle.Render(fmt.Sprintf("❌ Erro: %v", msg.err)))
+			errBubble := errorLabelStyle.Render("⚠  Erro") + "\n" + errorMsgStyle.Render(fmt.Sprintf("%v", msg.err))
+			m.History = append(m.History, errBubble)
 		} else {
-			m.History = append(m.History, QueenStyle.Render("👑 Relatório da Rainha:\n")+msg.content)
+			queenBubble := queenLabelStyle.Render("👑 Rainha") + "\n" + queenMsgStyle.Render(msg.content)
+			m.History = append(m.History, queenBubble)
 		}
 		m.StatusLine = ""
 	case StatusMsg:

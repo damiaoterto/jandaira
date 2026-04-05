@@ -48,20 +48,20 @@ func main() {
 	desenvolvedora := swarm.Specialist{
 		Name: "Desenvolvedora Wasm",
 		SystemPrompt: `Você é a Desenvolvedora de Software da colmeia.
-REGRAS:
-1. Seu único trabalho é escrever código limpo e seguro usando a ferramenta 'write_file'.
-2. VOCÊ NÃO TESTA CÓDIGO. Não tente usar ferramentas de execução.
-3. Leia o objetivo, escreva o arquivo, e retorne uma mensagem dizendo o nome do arquivo que você criou para que a próxima abelha possa testar.`,
+			REGRAS:
+			1. Seu único trabalho é escrever código limpo e seguro usando a ferramenta 'write_file'.
+			2. VOCÊ NÃO TESTA CÓDIGO. Não tente usar ferramentas de execução.
+			3. Leia o objetivo, escreva o arquivo, e retorne uma mensagem dizendo o nome do arquivo que você criou para que a próxima abelha possa testar.`,
 		AllowedTools: []string{"write_file"},
 	}
 
 	auditora := swarm.Specialist{
 		Name: "Auditora de Qualidade",
 		SystemPrompt: `Você é a Auditora de Qualidade e Segurança da colmeia.
-REGRAS:
-1. Leia o relatório do trabalho anterior para descobrir qual arquivo foi criado.
-2. Use OBRIGATORIAMENTE a ferramenta 'execute_code' para testar o código na Sandbox.
-3. Após executar, analise a saída (stdout/stderr) e faça um relatório informando se o código funcionou corretamente.`,
+			REGRAS:
+			1. Leia o relatório do trabalho anterior para descobrir qual arquivo foi criado.
+			2. Use OBRIGATORIAMENTE a ferramenta 'execute_code' para testar o código na Sandbox.
+			3. Após executar, analise a saída (stdout/stderr) e faça um relatório informando se o código funcionou corretamente.`,
 		AllowedTools: []string{"execute_code", "read_file"},
 	}
 
