@@ -1,0 +1,62 @@
+name: "Build Project"
+on:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: jandaira-linux
+          - os: windows-latest
+            artifact_name: jandaira-windows.exe
+            setup_name: jandaira-setup.exe
+          - os: macos-latest
+            artifact_name: jandaira-macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Golang
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build Binary
+        run: go build -o ${{ matrix.artifact_name }} ./cmd/cli/main.go
+
+      # PASSO EXCLUSIVO PARA WINDOWS: Criar o instalador
+      - name: Create Windows Setup
+        if: matrix.os == 'windows-latest'
+        run: |
+          # Cria um arquivo de script básico para o Inno Setup (.iss)
+          echo '[Setup]' > installer.iss
+          echo 'AppName=Jandaira' >> installer.iss
+          echo 'AppVersion=${{ github.event.release.tag_name }}' >> installer.iss
+          echo 'DefaultDirName={pf}\Jandaira' >> installer.iss
+          echo 'DefaultGroupName=Jandaira' >> installer.iss
+          echo 'OutputDir=.' >> installer.iss
+          echo 'OutputBaseFilename=jandaira-setup' >> installer.iss
+          echo '[Files]' >> installer.iss
+          echo 'Source: "jandaira-windows.exe"; DestDir: "{app}"' >> installer.iss
+
+          # Compila o script usando o ISCC (Inno Setup Compiler) que já vem no Windows do GitHub
+          iscc installer.iss
+
+      - name: Upload to Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # No Windows, vamos subir tanto o binário quanto o setup
+          if ("${{ matrix.os }}" -eq "windows-latest") {
+            gh release upload "$env:RELEASE_TAG" "${{ matrix.artifact_name }}" "${{ matrix.setup_name }}"
+          } else {
+            gh release upload "$env:RELEASE_TAG" "${{ matrix.artifact_name }}"
+          }
+        shell: pwsh
