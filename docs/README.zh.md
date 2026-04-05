@@ -1,6 +1,8 @@
 # 🐝 Jandaira 蜂群操作系统
 
-> *自主、安全与巴西蜂群的力量。*
+<p align="center">
+  <img src="../logo.png" alt="Jandaira Logo" width="220"/>
+</p>
 
 一个用 Go 语言编写的**多智能体自主框架**，灵感来自巴西本土蜂 *Melipona subnitida*——**Jandaíra** 蜂的集体智慧。
 

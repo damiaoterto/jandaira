@@ -1,6 +1,8 @@
 # 🐝 Jandaira Swarm OS
 
-> *Autonomy, Security, and the Power of the Brazilian Swarm.*
+<p align="center">
+  <img src="../logo.png" alt="Jandaira Logo" width="220"/>
+</p>
 
 A **multi-agent autonomous framework** written in Go, inspired by the collective intelligence of the native Brazilian bee *Melipona subnitida* — the **Jandaíra**.
 

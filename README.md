@@ -1,6 +1,8 @@
 # 🐝 Jandaira Swarm OS
 
-> *Autonomia, Segurança e a Força do Enxame Brasileiro.*
+<p align="center">
+  <img src="logo.png" alt="Jandaira Logo" width="220"/>
+</p>
 
 Um framework de **multiagentes autônomos** escrito em Go, inspirado na inteligência coletiva da abelha nativa brasileira *Melipona subnitida* — a **Jandaíra**.
 
