@@ -8,6 +8,7 @@ import (
 
 	"github.com/damiaoterto/jandaira/internal/api"
 	"github.com/damiaoterto/jandaira/internal/brain"
+	"github.com/damiaoterto/jandaira/internal/config"
 	"github.com/damiaoterto/jandaira/internal/queue"
 	"github.com/damiaoterto/jandaira/internal/swarm"
 	"github.com/damiaoterto/jandaira/internal/tool"
@@ -19,12 +20,19 @@ func main() {
 
 	ctx := context.Background()
 
+	configPath := config.GetDefaultPath()
+	cfg, _ := config.Load(configPath)
+	swarmName := "enxame-alfa"
+	if cfg != nil && cfg.SwarmName != "" {
+		swarmName = cfg.SwarmName
+	}
+
 	honeycomb, err := brain.NewLocalVectorDB("./.jandaira/memory.json")
 	if err != nil {
 		fmt.Printf("Error initializing local vector database: %v\n", err)
 		os.Exit(1)
 	}
-	_ = honeycomb.EnsureCollection(ctx, "enxame-alfa", 1536)
+	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)
 
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
@@ -32,7 +40,12 @@ func main() {
 		apiKey = "sk-mock-key-for-testing"
 	}
 
-	brain := brain.NewOpenAIBrain(apiKey, "gpt-5.4-nano")
+	modelType := "gpt-5.4-nano"
+	if cfg != nil && cfg.Model != "" {
+		modelType = cfg.Model
+	}
+
+	brain := brain.NewOpenAIBrain(apiKey, modelType)
 	groupQueue := queue.NewGroupQueue(3)
 	queen := swarm.NewQueen(groupQueue, brain, honeycomb)
 
@@ -44,20 +57,28 @@ func main() {
 	queen.EquipTool(&tool.SearchMemoryTool{
 		Brain:      brain,
 		Honeycomb:  honeycomb,
-		Collection: "enxame-alfa",
+		Collection: swarmName,
 	})
 
 	queen.EquipTool(&tool.StoreMemoryTool{
 		Brain:      brain,
 		Honeycomb:  honeycomb,
-		Collection: "enxame-alfa",
+		Collection: swarmName,
 	})
 
-	queen.RegisterSwarm("enxame-alfa", swarm.Policy{
-		MaxNectar:        20000,
-		Isolate:          true,
-		RequiresApproval: true,
-	})
+	if cfg != nil {
+		queen.RegisterSwarm(swarmName, swarm.Policy{
+			MaxNectar:        cfg.MaxNectar,
+			Isolate:          cfg.Isolated,
+			RequiresApproval: cfg.Supervised,
+		})
+	} else {
+		queen.RegisterSwarm(swarmName, swarm.Policy{
+			MaxNectar:        20000,
+			Isolate:          true,
+			RequiresApproval: true,
+		})
+	}
 
 	desenvolvedora := swarm.Specialist{
 		Name:         "Desenvolvedora Wasm",
@@ -73,7 +94,7 @@ func main() {
 
 	workflow := []swarm.Specialist{desenvolvedora, auditora}
 
-	server := api.NewServer(queen, workflow, *port)
+	server := api.NewServer(queen, workflow, *port, configPath)
 
 	// LogFunc: forwards all Queen logs to connected WebSocket clients
 	queen.LogFunc = func(msg string) {

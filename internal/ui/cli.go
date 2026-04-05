@@ -182,6 +182,7 @@ type HistoryMsg struct {
 type CLIModel struct {
 	Queen      *swarm.Queen
 	Pipeline   []swarm.Specialist
+	SwarmName  string
 	TextInput  textinput.Model
 	Spinner    spinner.Model
 	History    []HistoryMsg
@@ -200,7 +201,7 @@ type CLIModel struct {
 
 // ── Initialization ─────────────────────────────────────────────────────────
 
-func InitialModel(q *swarm.Queen, p []swarm.Specialist) CLIModel {
+func InitialModel(q *swarm.Queen, p []swarm.Specialist, swarmName string) CLIModel {
 	styles := DefaultStyles()
 
 	ti := textinput.New()
@@ -218,6 +219,7 @@ func InitialModel(q *swarm.Queen, p []swarm.Specialist) CLIModel {
 	return CLIModel{
 		Queen:      q,
 		Pipeline:   p,
+		SwarmName:  swarmName,
 		TextInput:  ti,
 		Spinner:    s,
 		History: []HistoryMsg{
@@ -319,7 +321,7 @@ func (m CLIModel) runGoal(goal string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		resultChan, errChan := m.Queen.DispatchWorkflow(ctx, "enxame-alfa", goal, m.Pipeline)
+		resultChan, errChan := m.Queen.DispatchWorkflow(ctx, m.SwarmName, goal, m.Pipeline)
 
 		select {
 		case res := <-resultChan:

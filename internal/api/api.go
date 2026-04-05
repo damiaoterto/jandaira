@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/damiaoterto/jandaira/internal/config"
 	"github.com/damiaoterto/jandaira/internal/swarm"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -30,9 +31,10 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	Queen    *swarm.Queen
-	Workflow []swarm.Specialist
-	Port     int
+	Queen      *swarm.Queen
+	Workflow   []swarm.Specialist
+	Port       int
+	configPath string
 
 	// WebSocket client management
 	clients   map[*websocket.Conn]bool
@@ -43,11 +45,12 @@ type Server struct {
 	pendingApprovalsMu sync.Mutex
 }
 
-func NewServer(q *swarm.Queen, w []swarm.Specialist, port int) *Server {
+func NewServer(q *swarm.Queen, w []swarm.Specialist, port int, configPath string) *Server {
 	s := &Server{
 		Queen:            q,
 		Workflow:         w,
 		Port:             port,
+		configPath:       configPath,
 		clients:          make(map[*websocket.Conn]bool),
 		pendingApprovals: make(map[string]bool),
 	}
@@ -104,15 +107,74 @@ func (s *Server) Start() error {
 
 	// REST routes
 	api := r.Group("/api")
+	api.Use(s.setupMiddleware())
 	{
+		api.POST("/setup", s.handleSetup)
 		api.POST("/dispatch", s.handleDispatch)
-		// /approve removed: approvals are now 100% via WebSocket
 		api.GET("/tools", s.handleListTools)
 		api.GET("/agents", s.handleListAgents)
 	}
 
 	fmt.Printf("🌐 Jandaira server (Gin + WebSockets) listening on port %d...\n", s.Port)
 	return r.Run(fmt.Sprintf(":%d", s.Port))
+}
+
+func (s *Server) setupMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Bypass setup for setup
+		if c.Request.URL.Path == "/api/setup" {
+			c.Next()
+			return
+		}
+
+		_, err := config.Load(s.configPath)
+		if err == config.ErrConfigNotFound {
+			c.AbortWithStatusJSON(http.StatusPreconditionRequired, gin.H{
+				"error": "A colmeia ainda não foi configurada. Execute POST em /api/setup primeiro.",
+			})
+			return
+		}
+		c.Next()
+	}
+}
+
+func (s *Server) handleSetup(c *gin.Context) {
+	_, err := config.Load(s.configPath)
+	if err == nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "A colmeia já foi configurada. Não é possível alterar a estrutura principal pelo setup base."})
+		return
+	}
+
+	var req config.Config
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Parâmetros inválidos para configuração."})
+		return
+	}
+
+	// Definir defaults se necessário
+	if req.MaxNectar == 0 {
+		req.MaxNectar = 20000
+	}
+	if req.Model == "" {
+		req.Model = "gpt-4o-mini"
+	}
+	if req.SwarmName == "" {
+		req.SwarmName = "enxame-alfa"
+	}
+
+	if err := config.Save(s.configPath, &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao gravar configuração no disco."})
+		return
+	}
+
+	// Regista a política na Queen que estava aguardando
+	s.Queen.RegisterSwarm(req.SwarmName, swarm.Policy{
+		MaxNectar:        req.MaxNectar,
+		Isolate:          req.Isolated,
+		RequiresApproval: req.Supervised,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Configuração salva com sucesso! O ecossistema está pronto e as operárias acordaram."})
 }
 
 func (s *Server) handleWebSocket(c *gin.Context) {
@@ -176,7 +238,11 @@ func (s *Server) handleDispatch(c *gin.Context) {
 	}
 
 	if req.GroupID == "" {
-		req.GroupID = "enxame-alfa"
+		if cfg, err := config.Load(s.configPath); err == nil {
+			req.GroupID = cfg.SwarmName
+		} else {
+			req.GroupID = "enxame-alfa"
+		}
 	}
 
 	// Long-running task: offload to a goroutine and return HTTP immediately.
