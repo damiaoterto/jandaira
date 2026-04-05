@@ -11,123 +11,155 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/damiaoterto/jandaira/internal/swarm"
 )
 
-// ── Palette ─────────────────────────────────────────────────────────────────
-const (
-	colorGold        = "#F5A623"
-	colorAmber       = "#FFD166"
-	colorQueenPink   = "#F78FA7"
-	colorWorkerGreen = "#06D6A0"
-	colorUserCyan    = "#48CAE4"
-	colorErrorRed    = "#EF476F"
-	colorMuted       = "#6C6C8A"
-	colorBorder      = "#2D2B55"
-	colorWarning     = "#FF8C00"
-)
+// ── Theme & Layout ────────────────────────────────────────────────────────
+type Theme struct {
+	Primary   lipgloss.Color
+	Secondary lipgloss.Color
+	Accent    lipgloss.Color
+	Success   lipgloss.Color
+	Info      lipgloss.Color
+	Warning   lipgloss.Color
+	Error     lipgloss.Color
+	Text      lipgloss.Color
+	Muted     lipgloss.Color
+	Surface   lipgloss.Color
+	BgDark    lipgloss.Color
+}
 
-// ── Base styles ─────────────────────────────────────────────────────────────
-var (
-	// Banner box
-	bannerBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(lipgloss.Color(colorGold)).
-			Padding(0, 3).
-			MarginBottom(1)
+var DefaultTheme = Theme{
+	Primary:   lipgloss.Color("#FFD166"), // Amber
+	Secondary: lipgloss.Color("#F5A623"), // Gold
+	Accent:    lipgloss.Color("#F78FA7"), // Pink
+	Success:   lipgloss.Color("#06D6A0"), // Green
+	Info:      lipgloss.Color("#48CAE4"), // Cyan
+	Warning:   lipgloss.Color("#FF8C00"), // Orange
+	Error:     lipgloss.Color("#EF476F"), // Red
+	Text:      lipgloss.Color("#F8F8F2"), // Light Text
+	Muted:     lipgloss.Color("#6C6C8A"), // Gray
+	Surface:   lipgloss.Color("#2D2B55"), // Purple-ish Dark
+	BgDark:    lipgloss.Color("#1A1A2E"), // Deep Background
+}
 
-	bannerTitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(colorAmber)).
-				Bold(true)
+type Styles struct {
+	// Layout
+	App lipgloss.Style
 
-	bannerSubStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorMuted)).
-			Italic(true)
+	// Typography
+	Title    lipgloss.Style
+	Subtitle lipgloss.Style
+	Status   lipgloss.Style
 
-	// Message bubbles
-	userLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorUserCyan)).
-			Bold(true)
+	// Bubbles
+	UserBubble    lipgloss.Style
+	QueenBubble   lipgloss.Style
+	ErrorBubble   lipgloss.Style
+	SystemMessage lipgloss.Style
 
-	userMsgStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E0F4FF")).
-			BorderLeft(true).
-			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color(colorUserCyan)).
-			PaddingLeft(1)
+	// Approvals
+	ApprovalBox    lipgloss.Style
+	WarningLabel   lipgloss.Style
+	ApprovalKey    lipgloss.Style
+	ApprovalValue  lipgloss.Style
+	ApprovalPrompt lipgloss.Style
 
-	queenLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorQueenPink)).
-			Bold(true)
+	// Input
+	InputBox   lipgloss.Style
+	InputLabel lipgloss.Style
+	Footer     lipgloss.Style
+}
 
-	queenMsgStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFF0F5")).
-			BorderLeft(true).
-			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color(colorQueenPink)).
-			PaddingLeft(1)
+func DefaultStyles() *Styles {
+	t := DefaultTheme
 
-	errorLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorErrorRed)).
-			Bold(true)
+	return &Styles{
+		App: lipgloss.NewStyle().Padding(1, 2),
 
-	errorMsgStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFE0E6")).
-			BorderLeft(true).
-			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color(colorErrorRed)).
-			PaddingLeft(1)
+		Title: lipgloss.NewStyle().
+			Foreground(t.Primary).
+			Bold(true).
+			Padding(0, 1),
 
-	// Divider
-	dividerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorBorder))
+		Subtitle: lipgloss.NewStyle().
+			Foreground(t.Muted).
+			Italic(true),
 
-	// Status / spinner line
-	StatusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorAmber)).
-			Italic(true)
+		Status: lipgloss.NewStyle().
+			Foreground(t.Primary).
+			Italic(true),
 
-	// Input box
-	inputBoxStyle = lipgloss.NewStyle().
+		UserBubble: lipgloss.NewStyle().
+			Background(t.Info).
+			Foreground(lipgloss.Color("#000000")).
+			Padding(0, 1).
+			MarginBottom(1).
+			MarginTop(1),
+
+		QueenBubble: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(colorGold)).
-			Padding(0, 1)
+			BorderForeground(t.Accent).
+			Padding(0, 1).
+			MarginBottom(1).
+			MarginTop(1),
 
-	inputLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorAmber)).
-			Bold(true)
+		ErrorBubble: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Error).
+			Foreground(t.Error).
+			Padding(0, 1).
+			MarginBottom(1).
+			MarginTop(1),
 
-	// Footer hint
-	footerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorMuted)).
-			Italic(true)
+		SystemMessage: lipgloss.NewStyle().
+			Foreground(t.Muted).
+			Italic(true).
+			MarginBottom(1).
+			MarginTop(1),
 
-	// Apicultor (beekeeper) approval panel
-	approvalBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color(colorWarning)).
+		ApprovalBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Warning).
 			Padding(1, 2).
-			MarginTop(1)
+			MarginTop(1).
+			MarginBottom(1),
 
-	warningLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorWarning)).
-			Bold(true)
+		WarningLabel: lipgloss.NewStyle().
+			Foreground(t.Warning).
+			Bold(true),
 
-	approvalArgsStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#D4C5A9")).
-			Italic(true)
+		ApprovalKey: lipgloss.NewStyle().
+			Foreground(t.Primary).
+			Bold(true),
 
-	approvalPromptStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorWarning)).
-			Bold(true)
+		ApprovalValue: lipgloss.NewStyle().
+			Foreground(t.Text),
 
-	// Legacy aliases kept so nothing outside this file breaks
-	TitleStyle  = bannerTitleStyle
-	QueenStyle  = queenLabelStyle
-	WorkerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorWorkerGreen))
-	ErrorStyle  = errorLabelStyle
-	SystemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted)).Italic(true)
-	InputPrompt = inputLabelStyle.Render("🐝 Objetivo: ")
-)
+		ApprovalPrompt: lipgloss.NewStyle().
+			Foreground(t.Warning).
+			Bold(true).
+			MarginTop(1),
+
+		InputBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Secondary).
+			Padding(0, 1).
+			MarginTop(1),
+
+		InputLabel: lipgloss.NewStyle().
+			Foreground(t.Primary).
+			Bold(true),
+
+		Footer: lipgloss.NewStyle().
+			Foreground(t.Muted).
+			Italic(true).
+			MarginTop(1),
+	}
+}
+
+// ── Types ──────────────────────────────────────────────────────────────────
 
 // PermissionMsg is sent by the Queen goroutine when it requires Apicultor approval.
 type PermissionMsg struct {
@@ -142,12 +174,17 @@ type ResultMsg struct {
 
 type StatusMsg string
 
+type HistoryMsg struct {
+	Role    string // "user", "queen", "error", "system"
+	Content string
+}
+
 type CLIModel struct {
 	Queen      *swarm.Queen
 	Pipeline   []swarm.Specialist
 	TextInput  textinput.Model
 	Spinner    spinner.Model
-	History    []string
+	History    []HistoryMsg
 	IsWorking  bool
 	StatusLine string
 
@@ -155,128 +192,39 @@ type CLIModel struct {
 	WaitingApproval bool
 	ApprovalTool    string
 	ApprovalArgs    string
+
+	// Layout state
+	width  int
+	styles *Styles
 }
 
-// divider returns a horizontal rule string.
-func divider() string {
-	return dividerStyle.Render(strings.Repeat("─", 58))
-}
-
-// formatApprovalArgs turns raw tool-call JSON into a human-friendly block.
-// Each key is highlighted; multi-line values (e.g. file content) are indented
-// and shown in a dimmer colour so the beekeeper can read them at a glance.
-func formatApprovalArgs(rawJSON string) string {
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(rawJSON), &parsed); err != nil {
-		// Fallback: show the raw string as-is
-		return approvalArgsStyle.Render(rawJSON)
-	}
-
-	keyStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorAmber)).
-		Bold(true)
-
-	valueStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#D4C5A9"))
-
-	codeStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#A8D8A8")).
-		Background(lipgloss.Color("#1A1A2E")).
-		Padding(0, 1)
-
-	var lines []string
-	for k, v := range parsed {
-		strVal := fmt.Sprintf("%v", v)
-		if strings.Contains(strVal, "\n") {
-			// Multi-line value → render as a code block
-			indented := strings.ReplaceAll(strVal, "\n", "\n  ")
-			lines = append(lines,
-				keyStyle.Render("▸ "+k+":"),
-				codeStyle.Render("  "+indented),
-			)
-		} else {
-			lines = append(lines,
-				keyStyle.Render("▸ "+k+": ")+valueStyle.Render(strVal),
-			)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-// View implements [tea.Model].
-func (m CLIModel) View() string {
-	var b strings.Builder
-
-	// ── Banner ──────────────────────────────────────────────
-	banner := lipgloss.JoinVertical(
-		lipgloss.Center,
-		bannerTitleStyle.Render("🍯  Jandaira Swarm OS  🍯"),
-		bannerSubStyle.Render("Swarm Intelligence · Powered by Go"),
-	)
-	b.WriteString(bannerBoxStyle.Render(banner))
-	b.WriteString("\n")
-
-	// ── History ─────────────────────────────────────────────
-	for _, msg := range m.History {
-		b.WriteString(msg)
-		b.WriteString("\n")
-		b.WriteString(divider())
-		b.WriteString("\n")
-	}
-
-	// ── Apicultor approval panel ─────────────────────────────
-	if m.WaitingApproval {
-		header := fmt.Sprintf("%s  ⚠️  A IA quer usar a ferramenta  %s",
-			m.Spinner.View(),
-			warningLabelStyle.Render("'"+m.ApprovalTool+"'"),
-		)
-		argsBlock := formatApprovalArgs(m.ApprovalArgs)
-		promptLine := approvalPromptStyle.Render("👨\u200d🌾 Você autoriza? (S = sim / N = não)")
-
-		panelContent := lipgloss.JoinVertical(lipgloss.Left,
-			header,
-			"",
-			argsBlock,
-			"",
-			promptLine,
-		)
-		b.WriteString(approvalBoxStyle.Render(panelContent) + "\n")
-
-	// ── Spinner or Input ────────────────────────────────────
-	} else if m.IsWorking {
-		spinnerLine := fmt.Sprintf("%s  %s", m.Spinner.View(), StatusStyle.Render(m.StatusLine))
-		b.WriteString("\n" + spinnerLine + "\n")
-	} else {
-		inputContent := inputLabelStyle.Render("🐝 Objetivo") + "  " + m.TextInput.View()
-		b.WriteString("\n" + inputBoxStyle.Render(inputContent) + "\n")
-		b.WriteString(footerStyle.Render("  ↵ enviar   esc / ctrl+c sair") + "\n")
-	}
-
-	return b.String()
-}
+// ── Initialization ─────────────────────────────────────────────────────────
 
 func InitialModel(q *swarm.Queen, p []swarm.Specialist) CLIModel {
+	styles := DefaultStyles()
+
 	ti := textinput.New()
 	ti.Placeholder = "Diga à Rainha o que deseja fazer..."
 	ti.Focus()
 	ti.CharLimit = 256
 	ti.Width = 52
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGold))
-	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAmber))
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(DefaultTheme.Secondary)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(DefaultTheme.Primary)
 
 	s := spinner.New()
-	s.Spinner = spinner.Points
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGold))
-
-	welcome := SystemStyle.Render("✦ A Colmeia Jandaira despertou. As operárias aguardam as suas ordens.")
+	s.Spinner = spinner.MiniDot
+	s.Style = lipgloss.NewStyle().Foreground(DefaultTheme.Secondary)
 
 	return CLIModel{
-		Queen:     q,
-		Pipeline:  p,
-		TextInput: ti,
-		Spinner:   s,
-		History:   []string{welcome},
+		Queen:      q,
+		Pipeline:   p,
+		TextInput:  ti,
+		Spinner:    s,
+		History: []HistoryMsg{
+			{Role: "system", Content: "✦ A Colmeia Jandaira despertou. As operárias aguardam as suas ordens."},
+		},
 		IsWorking: false,
+		styles:    styles,
 	}
 }
 
@@ -284,11 +232,21 @@ func (m CLIModel) Init() tea.Cmd {
 	return tea.Batch(textinput.Blink, m.Spinner.Tick)
 }
 
+// ── Update ─────────────────────────────────────────────────────────────────
+
 func (m CLIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		// Reserve space for padding and borders
+		if m.width > 12 {
+			m.TextInput.Width = m.width - 12
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// ── Apicultor approval intercept ───────────────────────
 		if m.WaitingApproval {
@@ -320,14 +278,13 @@ func (m CLIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			goal := m.TextInput.Value()
 			m.TextInput.SetValue("")
-			userBubble := userLabelStyle.Render("👤 Você") + "\n" + userMsgStyle.Render(goal)
-			m.History = append(m.History, userBubble)
+
+			m.History = append(m.History, HistoryMsg{Role: "user", Content: goal})
 			m.IsWorking = true
 			m.StatusLine = "A Rainha está a analisar a tarefa..."
 			cmds = append(cmds, m.runGoal(goal))
 		}
 
-	// ── Apicultor permission request from the Queen goroutine ──
 	case PermissionMsg:
 		m.WaitingApproval = true
 		m.ApprovalTool = msg.ToolName
@@ -337,15 +294,15 @@ func (m CLIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ResultMsg:
 		m.IsWorking = false
 		if msg.err != nil {
-			errBubble := errorLabelStyle.Render("⚠  Erro") + "\n" + errorMsgStyle.Render(fmt.Sprintf("%v", msg.err))
-			m.History = append(m.History, errBubble)
+			m.History = append(m.History, HistoryMsg{Role: "error", Content: msg.err.Error()})
 		} else {
-			queenBubble := queenLabelStyle.Render("👑 Rainha") + "\n" + queenMsgStyle.Render(msg.content)
-			m.History = append(m.History, queenBubble)
+			m.History = append(m.History, HistoryMsg{Role: "queen", Content: msg.content})
 		}
 		m.StatusLine = ""
+
 	case StatusMsg:
 		m.StatusLine = string(msg)
+
 	case spinner.TickMsg:
 		m.Spinner, cmd = m.Spinner.Update(msg)
 		cmds = append(cmds, cmd)
@@ -373,4 +330,157 @@ func (m CLIModel) runGoal(goal string) tea.Cmd {
 			return ResultMsg{err: ctx.Err()}
 		}
 	}
+}
+
+// ── View Rendering ─────────────────────────────────────────────────────────
+
+func (m CLIModel) View() string {
+	width := m.width
+	if width == 0 {
+		width = 80 // Reliable default before initial WindowSizeMsg
+	}
+
+	var b strings.Builder
+
+	// Padding allowance
+	contentWidth := width - 4
+	if contentWidth < 40 {
+		contentWidth = 40
+	}
+
+	// 1. Banner
+	bannerTitle := lipgloss.JoinVertical(
+		lipgloss.Center,
+		m.styles.Title.Render("🍯 Jandaira Swarm OS 🍯"),
+		m.styles.Subtitle.Render("Swarm Intelligence · Powered by Go"),
+	)
+
+	bannerBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(DefaultTheme.Secondary).
+		Width(contentWidth).
+		Align(lipgloss.Center).
+		MarginBottom(1)
+
+	b.WriteString(bannerBox.Render(bannerTitle))
+	b.WriteString("\n")
+
+	// 2. Chat History
+	b.WriteString(m.renderHistory(contentWidth))
+
+	// 3. Footer / Input / HitL Status
+	if m.WaitingApproval {
+		b.WriteString("\n" + m.renderApprovalBox(contentWidth))
+	} else if m.IsWorking {
+		spinnerLine := fmt.Sprintf("%s %s", m.Spinner.View(), m.styles.Status.Render(m.StatusLine))
+		spinnerText := lipgloss.PlaceHorizontal(contentWidth, lipgloss.Left, spinnerLine)
+		b.WriteString("\n" + spinnerText + "\n")
+	} else {
+		b.WriteString("\n" + m.renderInputBox(contentWidth))
+	}
+
+	// Wrapper guarantees container padding logic
+	return m.styles.App.Render(b.String())
+}
+
+// wrapText adds dynamic word-wrapping functionality
+func (m CLIModel) wrapText(text string, maxWidth int) string {
+	if lipgloss.Width(text) > maxWidth {
+		return lipgloss.NewStyle().Width(maxWidth).Render(text)
+	}
+	return text
+}
+
+func (m CLIModel) renderHistory(width int) string {
+	var b strings.Builder
+
+	maxBubbleWidth := int(float64(width) * 0.8) // Bubbles span up to 80% screen width
+	if maxBubbleWidth < 30 {
+		maxBubbleWidth = width
+	}
+
+	for _, msg := range m.History {
+		b.WriteString("\n")
+		switch msg.Role {
+		case "system":
+			sysContent := m.styles.SystemMessage.Render(msg.Content)
+			row := lipgloss.PlaceHorizontal(width, lipgloss.Center, sysContent)
+			b.WriteString(row)
+
+		case "user":
+			content := m.wrapText(msg.Content, maxBubbleWidth)
+			bubble := m.styles.UserBubble.Render(content)
+			row := lipgloss.PlaceHorizontal(width, lipgloss.Right, bubble)
+			b.WriteString(row)
+
+		case "queen":
+			header := lipgloss.NewStyle().Foreground(DefaultTheme.Accent).Bold(true).Render("👑 Rainha:")
+			content := m.wrapText(msg.Content, maxBubbleWidth)
+			bubble := m.styles.QueenBubble.Render(content)
+			body := lipgloss.JoinVertical(lipgloss.Left, header, bubble)
+			row := lipgloss.PlaceHorizontal(width, lipgloss.Left, body)
+			b.WriteString(row)
+
+		case "error":
+			header := lipgloss.NewStyle().Foreground(DefaultTheme.Error).Bold(true).Render("⚠️ Erro:")
+			content := m.wrapText(msg.Content, maxBubbleWidth)
+			bubble := m.styles.ErrorBubble.Render(content)
+			body := lipgloss.JoinVertical(lipgloss.Left, header, bubble)
+			row := lipgloss.PlaceHorizontal(width, lipgloss.Left, body)
+			b.WriteString(row)
+		}
+	}
+	return b.String()
+}
+
+func (m CLIModel) renderApprovalBox(width int) string {
+	header := fmt.Sprintf("%s ⚠️  A IA requisita usar a ferramenta: %s",
+		m.Spinner.View(),
+		m.styles.WarningLabel.Render(m.ApprovalTool),
+	)
+
+	argsBlock := m.formatApprovalArgs(m.ApprovalArgs)
+	prompt := m.styles.ApprovalPrompt.Render("👨\u200d🌾 Você autoriza? (S = Sim / N = Não)")
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		"",
+		argsBlock,
+		prompt,
+	)
+
+	return m.styles.ApprovalBox.Copy().Width(width).Render(content) + "\n"
+}
+
+func (m CLIModel) formatApprovalArgs(rawJSON string) string {
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(rawJSON), &parsed); err != nil {
+		return lipgloss.NewStyle().Foreground(DefaultTheme.Text).Italic(true).Render(rawJSON)
+	}
+
+	var lines []string
+	codeBg := lipgloss.NewStyle().Background(DefaultTheme.BgDark).Padding(0, 1)
+
+	for k, v := range parsed {
+		strVal := fmt.Sprintf("%v", v)
+		if strings.Contains(strVal, "\n") {
+			indented := strings.ReplaceAll(strVal, "\n", "\n  ")
+			lines = append(lines,
+				m.styles.ApprovalKey.Render("▸ "+k+":"),
+				codeBg.Render("  "+indented),
+			)
+		} else {
+			lines = append(lines,
+				m.styles.ApprovalKey.Render("▸ "+k+": ")+m.styles.ApprovalValue.Render(strVal),
+			)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m CLIModel) renderInputBox(width int) string {
+	inputContent := m.styles.InputLabel.Render("🐝 Objetivo ") + m.TextInput.View()
+	box := m.styles.InputBox.Copy().Width(width).Render(inputContent)
+	tips := m.styles.Footer.Copy().Width(width).Align(lipgloss.Center).Render("↵ enviar • esc sair")
+	return lipgloss.JoinVertical(lipgloss.Left, box, tips) + "\n"
 }
