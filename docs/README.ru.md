@@ -1,7 +1,7 @@
 # 🐝 Jandaira Swarm OS
 
 <p align="center">
-  <img src="../logo.png" alt="Jandaira Logo" width="220"/>
+  <img src="../jandaira.png" alt="Jandaira Logo"/>
 </p>
 
 **Мультиагентный автономный фреймворк**, написанный на Go, вдохновлённый коллективным разумом бразильской нативной пчелы *Melipona subnitida* — **Jandaíra**.
