@@ -4,51 +4,176 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/queue"
-	"github.com/damiaoterto/jandaira/internal/tools"
+	"github.com/damiaoterto/jandaira/internal/tool"
 )
 
 // Policy defines the safety rules and resource limits for a swarm.
 type Policy struct {
-	MaxNectar        int  // Maximum token/cost budget
-	Isolate          bool // Whether to use a strict Wasm sandbox
-	RequiresApproval bool // If human-in-the-loop is mandatory for sensitive tools
+	MaxNectar        int
+	Isolate          bool
+	RequiresApproval bool
+}
+
+// Specialist representa uma abelha com um papel específico e ferramentas limitadas.
+type Specialist struct {
+	Name         string
+	SystemPrompt string
+	AllowedTools []string
 }
 
 // Queen is the central orchestrator of the hive.
 type Queen struct {
 	Queue       *queue.GroupQueue
-	Brain       brain.Brain // The AI brain integrated into the Queen
+	Brain       brain.Brain
+	Honeycomb   brain.Honeycomb
 	mu          sync.RWMutex
-	Policies    map[string]Policy // Policies indexed by GroupID
-	NectarUsage map[string]int    // Current consumption per group
-	Tools       map[string]tools.Tool
+	Policies    map[string]Policy
+	NectarUsage map[string]int
+	Tools       map[string]tool.Tool
 }
 
 // NewQueen initializes the hive's sovereign.
-func NewQueen(q *queue.GroupQueue, b brain.Brain) *Queen {
+func NewQueen(q *queue.GroupQueue, b brain.Brain, h brain.Honeycomb) *Queen {
 	return &Queen{
 		Queue:       q,
 		Brain:       b,
+		Honeycomb:   h,
 		Policies:    make(map[string]Policy),
 		NectarUsage: make(map[string]int),
-		Tools:       make(map[string]tools.Tool),
+		Tools:       make(map[string]tool.Tool),
 	}
 }
 
 // EquipTool dá à Rainha o conhecimento de uma nova ferramenta
-func (q *Queen) EquipTool(t tools.Tool) {
+func (q *Queen) EquipTool(t tool.Tool) {
 	q.Tools[t.Name()] = t
 }
 
 // RegisterSwarm sets up the rules for a specific group of agents.
-func (q *Queen) RegisterSwarm(groupID string, p Policy) { /* Mantém-se */
+func (q *Queen) RegisterSwarm(groupID string, p Policy) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Policies[groupID] = p
 	q.NectarUsage[groupID] = 0
+}
+
+// DispatchWorkflow executa uma cadeia de especialistas (Passagem de Bastão)
+func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal string, pipeline []Specialist) error {
+	q.mu.RLock()
+	policy, exists := q.Policies[groupID]
+	q.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("swarm group %s not registered", groupID)
+	}
+
+	job := queue.Job{
+		ID: fmt.Sprintf("workflow-%s", groupID), GroupID: groupID, MaxRetries: 1,
+		Task: func(ctx context.Context) error {
+			// O "Contexto" vai acumular o trabalho de cada especialista para passar para a próxima
+			contextAccumulator := fmt.Sprintf("Objetivo Original: %s\n\n", goal)
+
+			for _, specialist := range pipeline {
+				fmt.Printf("\n👑 [Queen] Delegando a fase para a Especialista: %s\n", specialist.Name)
+
+				output, err := q.runSpecialist(ctx, groupID, specialist, contextAccumulator, policy)
+				if err != nil {
+					return fmt.Errorf("a especialista %s falhou: %w", specialist.Name, err)
+				}
+
+				// Passa o bastão: adiciona o trabalho desta abelha ao contexto da próxima
+				contextAccumulator += fmt.Sprintf("\n--- Trabalho concluído por %s ---\n%s\n", specialist.Name, output)
+			}
+
+			fmt.Printf("\n👑 [Queen] Workflow completo! O enxame finalizou a cadeia de tarefas.\n")
+
+			// Salvar o relatório final na memória se existir Honeycomb
+			if q.Honeycomb != nil {
+				vector, err := q.Brain.Embed(ctx, contextAccumulator)
+				if err == nil {
+					docID := fmt.Sprintf("workflow-%d", time.Now().Unix())
+					_ = q.Honeycomb.Store(ctx, groupID, docID, vector, map[string]string{
+						"goal":    goal,
+						"content": contextAccumulator,
+						"type":    "multi_agent_report",
+					})
+					fmt.Println("💾 [Queen] Conhecimento colaborativo guardado na memória do LanceDB.")
+				}
+			}
+
+			return nil
+		},
+	}
+
+	q.Queue.Submit(ctx, job)
+	return nil
+}
+
+// runSpecialist executa o Loop de Agente para uma abelha específica com as suas ferramentas restritas
+func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Specialist, taskContext string, p Policy) (string, error) {
+
+	// Filtra as ferramentas para que a abelha só veja as ferramentas que ela tem permissão para usar
+	var availableTools []brain.ToolDefinition
+	for _, toolName := range spec.AllowedTools {
+		if t, ok := q.Tools[toolName]; ok {
+			availableTools = append(availableTools, brain.ToolDefinition{
+				Name: t.Name(), Description: t.Description(), Parameters: t.Parameters(),
+			})
+		}
+	}
+
+	messages := []brain.Message{
+		{Role: brain.RoleSystem, Content: spec.SystemPrompt},
+		{Role: brain.RoleUser, Content: taskContext},
+	}
+
+	for i := 0; i < 10; i++ {
+		response, toolCalls, report, err := q.Brain.Chat(ctx, messages, availableTools)
+		if err != nil {
+			return "", err
+		}
+
+		q.mu.Lock()
+		q.NectarUsage[groupID] += report.TotalTokens
+		q.mu.Unlock()
+
+		if len(toolCalls) == 0 {
+			fmt.Printf("✅ [%s] Tarefa concluída.\n", spec.Name)
+			return response, nil
+		}
+
+		messages = append(messages, brain.Message{
+			Role: brain.RoleAssistant, Content: response, ToolCalls: toolCalls,
+		})
+
+		for _, call := range toolCalls {
+			fmt.Printf("🐝 [%s] Usando a ferramenta: %s\n", spec.Name, call.Name)
+
+			tool, exists := q.Tools[call.Name]
+			var toolResult string
+
+			if !exists {
+				toolResult = "Erro: Ferramenta não encontrada ou não autorizada para esta especialista."
+			} else {
+				res, err := tool.Execute(ctx, call.ArgsJSON)
+				if err != nil {
+					toolResult = fmt.Sprintf("Erro ao executar: %v", err)
+				} else {
+					toolResult = res
+				}
+			}
+
+			messages = append(messages, brain.Message{
+				Role: brain.RoleTool, ToolCallID: call.ID, Content: toolResult,
+			})
+		}
+	}
+
+	return "", fmt.Errorf("limite de reflexões atingido pela especialista %s", spec.Name)
 }
 
 // DispatchGoal receives a high-level goal and assigns it to the workers via the queue.
