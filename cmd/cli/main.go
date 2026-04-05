@@ -17,7 +17,7 @@ import (
 func main() {
 	ctx := context.Background()
 
-	honeycomb, err := brain.NewLanceDBProvider("./.jandaira/data")
+	honeycomb, err := brain.NewLocalVectorDB("./.jandaira/data")
 	if err != nil {
 		fmt.Printf("Erro ao inicializar o banco vetorial: %v\n", err)
 		os.Exit(1)
