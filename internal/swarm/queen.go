@@ -8,6 +8,7 @@ import (
 
 	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/queue"
+	"github.com/damiaoterto/jandaira/internal/security"
 	"github.com/damiaoterto/jandaira/internal/tool"
 )
 
@@ -90,16 +91,39 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 		Task: func(ctx context.Context) error {
 			contextAccumulator := fmt.Sprintf("Objetivo Original: %s\n\n", goal)
 
+			// Gera uma chave de sessão única para a comunicação deste workflow
+			sessionKey, err := security.GenerateKey()
+			if err != nil {
+				errChan <- fmt.Errorf("falha ao gerar chave criptográfica: %w", err)
+				return err
+			}
+
 			for _, specialist := range pipeline {
 				q.logf("👑 [Queen] Delegando a fase para: %s", specialist.Name)
 
-				output, err := q.runSpecialist(ctx, groupID, specialist, contextAccumulator, policy)
+				// Criptografa o contexto antes de enviar para a Especialista (simulando canal seguro IPC)
+				encryptedPayload, err := security.Seal(sessionKey, contextAccumulator)
+				if err != nil {
+					errChan <- fmt.Errorf("falha ao criptografar payload: %w", err)
+					return err
+				}
+				q.logf("🔐 Payload criptografado (%d bytes) enviado para %s", len(encryptedPayload), specialist.Name)
+
+				encryptedOutput, err := q.runSpecialist(ctx, groupID, specialist, encryptedPayload, sessionKey, policy)
 				if err != nil {
 					errChan <- fmt.Errorf("a especialista %s falhou: %w", specialist.Name, err)
 					return err
 				}
 
-				contextAccumulator += fmt.Sprintf("\n--- Trabalho de %s ---\n%s\n", specialist.Name, output)
+				// Descriptografa a resposta recebida da Especialista
+				decryptedOutput, err := security.Open(sessionKey, encryptedOutput)
+				if err != nil {
+					errChan <- fmt.Errorf("falha ao descriptografar resposta de %s: %w", specialist.Name, err)
+					return err
+				}
+				q.logf("🔓 Resposta descriptografada recebida com sucesso de %s", specialist.Name)
+
+				contextAccumulator += fmt.Sprintf("\n--- Trabalho de %s ---\n%s\n", specialist.Name, decryptedOutput)
 			}
 
 			q.logf("👑 [Queen] Workflow completo! O enxame finalizou.")
@@ -128,9 +152,7 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 }
 
 // runSpecialist executa o Loop de Agente para uma abelha específica com as suas ferramentas restritas
-func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Specialist, taskContext string, p Policy) (string, error) {
-
-	// Filtra as ferramentas para que a abelha só veja as ferramentas que ela tem permissão para usar
+func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Specialist, encryptedTaskContext string, sessionKey []byte, p Policy) (string, error) {
 	var availableTools []brain.ToolDefinition
 	for _, toolName := range spec.AllowedTools {
 		if t, ok := q.Tools[toolName]; ok {
@@ -138,6 +160,12 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 				Name: t.Name(), Description: t.Description(), Parameters: t.Parameters(),
 			})
 		}
+	}
+
+	// A Especialista descriptografa o contexto que recebeu da Rainha
+	taskContext, err := security.Open(sessionKey, encryptedTaskContext)
+	if err != nil {
+		return "", fmt.Errorf("falha de segurança na especialista: impossível descriptografar o contexto: %w", err)
 	}
 
 	messages := []brain.Message{
@@ -156,8 +184,15 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 		q.mu.Unlock()
 
 		if len(toolCalls) == 0 {
-			fmt.Printf("✅ [%s] Tarefa concluída.\n", spec.Name)
-			return response, nil
+			q.logf("✅ [%s] Tarefa concluída.", spec.Name)
+
+			// A Especialista criptografa o resultado final antes de devolver à Rainha
+			encryptedFinalResponse, err := security.Seal(sessionKey, response)
+			if err != nil {
+				return "", fmt.Errorf("falha ao criptografar resposta final: %w", err)
+			}
+
+			return encryptedFinalResponse, nil
 		}
 
 		messages = append(messages, brain.Message{
@@ -165,13 +200,13 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 		})
 
 		for _, call := range toolCalls {
-			fmt.Printf("🐝 [%s] Usando a ferramenta: %s\n", spec.Name, call.Name)
+			q.logf("🐝 [%s] Usando a ferramenta: %s", spec.Name, call.Name)
 
 			tool, exists := q.Tools[call.Name]
 			var toolResult string
 
 			if !exists {
-				toolResult = "Erro: Ferramenta não encontrada ou não autorizada para esta especialista."
+				toolResult = "Erro: Ferramenta não encontrada."
 			} else {
 				res, err := tool.Execute(ctx, call.ArgsJSON)
 				if err != nil {
