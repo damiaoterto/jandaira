@@ -37,6 +37,8 @@ type Queen struct {
 	Tools             map[string]tool.Tool
 	LogFunc           func(string)
 	AskPermissionFunc func(toolName string, args string)
+	AgentChangeFunc   func(agentName string)
+	ToolStartFunc     func(agentName string, toolName string, args string)
 	ApprovalChan      chan bool
 }
 
@@ -102,6 +104,9 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 
 			for _, specialist := range pipeline {
 				q.logf("👑 [Queen] Delegando a fase para: %s", specialist.Name)
+				if q.AgentChangeFunc != nil {
+					q.AgentChangeFunc(specialist.Name)
+				}
 
 				encryptedPayload, err := security.Seal(sessionKey, contextAccumulator)
 				if err != nil {
@@ -217,6 +222,9 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 					q.logf("🚫 Ação bloqueada pelo Apicultor: %s", call.Name)
 					toolResult = fmt.Sprintf("ERRO: O Apicultor (usuário humano) NEGOU a permissão para você executar '%s'. Aborte esta tentativa.", call.Name)
 				} else {
+					if q.ToolStartFunc != nil {
+						q.ToolStartFunc(spec.Name, call.Name, call.ArgsJSON)
+					}
 					q.logf("🐝 [%s] Executando a ferramenta: %s", spec.Name, call.Name)
 					res, err := tool.Execute(ctx, call.ArgsJSON)
 					if err != nil {

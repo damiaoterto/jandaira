@@ -40,7 +40,7 @@ func main() {
 	newQuen.EquipTool(&tool.ExecuteCodeTool{})
 
 	newQuen.RegisterSwarm("enxame-alfa", swarm.Policy{
-		MaxNectar:        20000,
+		MaxNectar:        40000,
 		Isolate:          true,
 		RequiresApproval: true,
 	})
