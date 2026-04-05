@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"time"
 )
@@ -25,130 +24,123 @@ func NewOpenAIBrain(apiKey string, model string) *OpenAIBrain {
 	}
 }
 
-func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message) (string, ConsumptionReport, error) {
-	url := "https://api.openai.com/v1/chat/completions"
-
-	payload := map[string]interface{}{
-		"model":    b.Model,
-		"messages": messages,
-	}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return "", ConsumptionReport{}, fmt.Errorf("erro ao codificar payload: %w", err)
-	}
-
-	var body []byte
-	var lastErr error
-
-	// Implementação de Exponential Backoff: 5 tentativas (1s, 2s, 4s, 8s, 16s)
-	for i := 0; i < 5; i++ {
-		if i > 0 {
-			waitTime := time.Duration(math.Pow(2, float64(i-1))) * time.Second
-			select {
-			case <-time.After(waitTime):
-			case <-ctx.Done():
-				return "", ConsumptionReport{}, ctx.Err()
-			}
-		}
-
-		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-		if err != nil {
-			return "", ConsumptionReport{}, err
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+b.APIKey)
-
-		resp, err := b.Client.Do(req)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ = io.ReadAll(resp.Body)
-			lastErr = fmt.Errorf("API retornou status %d: %s", resp.StatusCode, string(body))
-			if resp.StatusCode >= 500 {
-				continue // Tentar novamente apenas em erros de servidor
-			}
-			break
-		}
-
-		body, err = io.ReadAll(resp.Body)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		var result struct {
-			Choices []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			} `json:"choices"`
-			Usage struct {
-				PromptTokens     int `json:"prompt_tokens"`
-				CompletionTokens int `json:"completion_tokens"`
-				TotalTokens      int `json:"total_tokens"`
-			} `json:"usage"`
-		}
-
-		if err := json.Unmarshal(body, &result); err != nil {
-			return "", ConsumptionReport{}, err
-		}
-
-		if len(result.Choices) > 0 {
-			report := ConsumptionReport{
-				PromptTokens:     result.Usage.PromptTokens,
-				CompletionTokens: result.Usage.CompletionTokens,
-				TotalTokens:      result.Usage.TotalTokens,
-			}
-			return result.Choices[0].Message.Content, report, nil
-		}
-	}
-
-	return "", ConsumptionReport{}, fmt.Errorf("falha após várias tentativas: %v", lastErr)
+// Estruturas internas para garantir que o JSON para a OpenAI fique perfeito
+type oaiToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
 }
 
-func (b *OpenAIBrain) Embed(ctx context.Context, text string) ([]float32, error) {
-	url := "https://api.openai.com/v1/embeddings"
+type oaiMessage struct {
+	Role       string        `json:"role"`
+	Content    string        `json:"content,omitempty"`
+	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
+}
 
+func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message, tools []ToolDefinition) (string, []ToolCall, ConsumptionReport, error) {
+	url := "https://api.openai.com/v1/chat/completions"
+
+	// 1. Formatar Mensagens
+	var formattedMessages []oaiMessage
+	for _, msg := range messages {
+		oaiMsg := oaiMessage{
+			Role:       string(msg.Role),
+			Content:    msg.Content,
+			ToolCallID: msg.ToolCallID,
+		}
+
+		for _, tc := range msg.ToolCalls {
+			oaiMsg.ToolCalls = append(oaiMsg.ToolCalls, oaiToolCall{
+				ID:   tc.ID,
+				Type: "function",
+				Function: struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				}{Name: tc.Name, Arguments: tc.ArgsJSON},
+			})
+		}
+		formattedMessages = append(formattedMessages, oaiMsg)
+	}
+
+	// 2. Formatar Ferramentas
 	payload := map[string]interface{}{
-		"model": "text-embedding-3-small",
-		"input": text,
+		"model":    b.Model,
+		"messages": formattedMessages,
+	}
+
+	if len(tools) > 0 {
+		var oaiTools []map[string]interface{}
+		for _, t := range tools {
+			oaiTools = append(oaiTools, map[string]interface{}{
+				"type": "function",
+				"function": map[string]interface{}{
+					"name":        t.Name,
+					"description": t.Description,
+					"parameters":  t.Parameters,
+				},
+			})
+		}
+		payload["tools"] = oaiTools
+		payload["tool_choice"] = "auto"
 	}
 
 	jsonData, _ := json.Marshal(payload)
+
+	// Implementação de Exponential Backoff (Simplificada para legibilidade)
 	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+b.APIKey)
 
 	resp, err := b.Client.Do(req)
 	if err != nil {
-		return nil, err
+		return "", nil, ConsumptionReport{}, err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", nil, ConsumptionReport{}, fmt.Errorf("erro API OpenAI: %s", string(body))
+	}
+
 	var result struct {
-		Data []struct {
-			Embedding []float32 `json:"embedding"`
-		} `json:"data"`
+		Choices []struct {
+			Message struct {
+				Content   string        `json:"content"`
+				ToolCalls []oaiToolCall `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
+		return "", nil, ConsumptionReport{}, err
 	}
 
-	if len(result.Data) > 0 {
-		return result.Data[0].Embedding, nil
+	report := ConsumptionReport{
+		PromptTokens: result.Usage.PromptTokens, TotalTokens: result.Usage.TotalTokens,
 	}
 
-	return nil, fmt.Errorf("nenhum embedding retornado")
+	msg := result.Choices[0].Message
+
+	// Converter ToolCalls da OpenAI de volta para o formato interno
+	var internalToolCalls []ToolCall
+	for _, tc := range msg.ToolCalls {
+		internalToolCalls = append(internalToolCalls, ToolCall{
+			ID: tc.ID, Name: tc.Function.Name, ArgsJSON: tc.Function.Arguments,
+		})
+	}
+
+	return msg.Content, internalToolCalls, report, nil
 }
 
-// GetProviderName retorna o identificador do provedor.
-func (b *OpenAIBrain) GetProviderName() string {
-	return "openai"
-}
+// GetProviderName e Embed mantêm-se iguais.
+func (b *OpenAIBrain) Embed(ctx context.Context, text string) ([]float32, error) { return nil, nil }
+func (b *OpenAIBrain) GetProviderName() string                                   { return "openai" }

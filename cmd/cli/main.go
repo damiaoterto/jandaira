@@ -9,6 +9,7 @@ import (
 	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/queue"
 	"github.com/damiaoterto/jandaira/internal/swarm"
+	"github.com/damiaoterto/jandaira/internal/tools"
 )
 
 func main() {
@@ -28,11 +29,15 @@ func main() {
 		fmt.Printf("Erro ao criar colecção: %v\n", err)
 	}
 
-	apiKey := "sk-mock-key-para-testes"
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	fmt.Println(apiKey)
 	newBrain := brain.NewOpenAIBrain(apiKey, "gpt-4o-mini")
 
 	groupQueue := queue.NewGroupQueue(3)
 	queen := swarm.NewQueen(groupQueue, newBrain)
+
+	queen.EquipTool(&tools.ListDirectoryTool{})
+	queen.EquipTool(&tools.ReadFileTool{})
 
 	queen.RegisterSwarm("enxame-alfa", swarm.Policy{
 		MaxNectar:        5000, // Orçamento máximo de 5000 tokens para evitar surpresas
