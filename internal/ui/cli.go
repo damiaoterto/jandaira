@@ -11,7 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
+	
+	"github.com/damiaoterto/jandaira/internal/i18n"
 	"github.com/damiaoterto/jandaira/internal/swarm"
 )
 
@@ -205,7 +206,7 @@ func InitialModel(q *swarm.Queen, p []swarm.Specialist, swarmName string) CLIMod
 	styles := DefaultStyles()
 
 	ti := textinput.New()
-	ti.Placeholder = "Diga à Rainha o que deseja fazer..."
+	ti.Placeholder = i18n.T("cli_prompt_placeholder")
 	ti.Focus()
 	ti.CharLimit = 256
 	ti.Width = 52
@@ -223,7 +224,7 @@ func InitialModel(q *swarm.Queen, p []swarm.Specialist, swarmName string) CLIMod
 		TextInput:  ti,
 		Spinner:    s,
 		History: []HistoryMsg{
-			{Role: "system", Content: "✦ A Colmeia Jandaira despertou. As operárias aguardam as suas ordens."},
+			{Role: "system", Content: i18n.T("cli_greeting")},
 		},
 		IsWorking: false,
 		styles:    styles,
@@ -283,7 +284,7 @@ func (m CLIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			m.History = append(m.History, HistoryMsg{Role: "user", Content: goal})
 			m.IsWorking = true
-			m.StatusLine = "A Rainha está a analisar a tarefa..."
+			m.StatusLine = i18n.T("cli_msg_processing")
 			cmds = append(cmds, m.runGoal(goal))
 		}
 
@@ -353,8 +354,8 @@ func (m CLIModel) View() string {
 	// 1. Banner
 	bannerTitle := lipgloss.JoinVertical(
 		lipgloss.Center,
-		m.styles.Title.Render("🍯 Jandaira Swarm OS 🍯"),
-		m.styles.Subtitle.Render("Swarm Intelligence · Powered by Go"),
+		m.styles.Title.Render(i18n.T("cli_header_title")),
+		m.styles.Subtitle.Render(i18n.T("cli_header_subtitle")),
 	)
 
 	bannerBox := lipgloss.NewStyle().
@@ -436,13 +437,14 @@ func (m CLIModel) renderHistory(width int) string {
 }
 
 func (m CLIModel) renderApprovalBox(width int) string {
-	header := fmt.Sprintf("%s ⚠️  A IA requisita usar a ferramenta: %s",
+	header := fmt.Sprintf("%s ⚠️  %s: %s",
 		m.Spinner.View(),
+		i18n.T("cli_request_approval"),
 		m.styles.WarningLabel.Render(m.ApprovalTool),
 	)
 
 	argsBlock := m.formatApprovalArgs(m.ApprovalArgs)
-	prompt := m.styles.ApprovalPrompt.Render("👨\u200d🌾 Você autoriza? (S = Sim / N = Não)")
+	prompt := m.styles.ApprovalPrompt.Render(i18n.T("cli_approval_prompt"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		header,
@@ -481,8 +483,8 @@ func (m CLIModel) formatApprovalArgs(rawJSON string) string {
 }
 
 func (m CLIModel) renderInputBox(width int) string {
-	inputContent := m.styles.InputLabel.Render("🐝 Objetivo ") + m.TextInput.View()
+	inputContent := m.styles.InputLabel.Render(i18n.T("cli_prompt_goal")+" ") + m.TextInput.View()
 	box := m.styles.InputBox.Copy().Width(width).Render(inputContent)
-	tips := m.styles.Footer.Copy().Width(width).Align(lipgloss.Center).Render("↵ enviar • esc sair")
+	tips := m.styles.Footer.Copy().Width(width).Align(lipgloss.Center).Render(i18n.T("cli_footer"))
 	return lipgloss.JoinVertical(lipgloss.Left, box, tips) + "\n"
 }

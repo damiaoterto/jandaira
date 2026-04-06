@@ -9,6 +9,7 @@ import (
 	"github.com/damiaoterto/jandaira/internal/api"
 	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/config"
+	"github.com/damiaoterto/jandaira/internal/i18n"
 	"github.com/damiaoterto/jandaira/internal/queue"
 	"github.com/damiaoterto/jandaira/internal/security"
 	"github.com/damiaoterto/jandaira/internal/swarm"
@@ -23,6 +24,13 @@ func main() {
 
 	configPath := config.GetDefaultPath()
 	cfg, _ := config.Load(configPath)
+
+	if cfg != nil && cfg.Language != "" {
+		i18n.SetLanguage(cfg.Language)
+	} else {
+		i18n.Init()
+	}
+
 	swarmName := "enxame-alfa"
 	if cfg != nil && cfg.SwarmName != "" {
 		swarmName = cfg.SwarmName
@@ -45,7 +53,7 @@ func main() {
 		}
 	}
 	if apiKey == "" {
-		fmt.Println("⚠️  Warning: OPENAI_API_KEY is not set in vault or env.")
+		fmt.Println(i18n.T("warn_api_key_not_set"))
 		apiKey = "sk-mock-key-for-testing"
 	}
 

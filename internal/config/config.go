@@ -12,6 +12,7 @@ var ErrConfigNotFound = errors.New("arquivo de configuração não encontrado")
 
 // Config representa as preferências do Apicultor
 type Config struct {
+	Language   string `json:"language"`
 	Model      string `json:"model"`
 	SwarmName  string `json:"swarm_name"`
 	MaxNectar  int    `json:"max_nectar"`

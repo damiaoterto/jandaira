@@ -11,6 +11,7 @@ import (
 	"github.com/damiaoterto/jandaira/internal/api"
 	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/config"
+	"github.com/damiaoterto/jandaira/internal/i18n"
 	"github.com/damiaoterto/jandaira/internal/queue"
 	"github.com/damiaoterto/jandaira/internal/security"
 	"github.com/damiaoterto/jandaira/internal/swarm"
@@ -28,6 +29,12 @@ func main() {
 	// ── Config Load/Setup ──────────────────────────────────────────────────
 	configPath := config.GetDefaultPath()
 	cfg, err := config.Load(configPath)
+
+	if err == nil && cfg.Language != "" {
+		i18n.SetLanguage(cfg.Language)
+	} else {
+		i18n.Init()
+	}
 
 	if err == config.ErrConfigNotFound {
 		if *serverMode {
@@ -78,7 +85,7 @@ func main() {
 		}
 	}
 	if apiKey == "" {
-		fmt.Println("⚠️ Aviso: OPENAI_API_KEY não definida no cofre nem no ambiente.")
+		fmt.Println(i18n.T("warn_api_key_not_set"))
 		apiKey = "sk-mock-key-para-testes"
 	}
 
@@ -139,7 +146,7 @@ func main() {
 	if *serverMode {
 		srv := api.NewServer(newQuen, workflow, *port, configPath)
 		if err := srv.Start(); err != nil {
-			fmt.Printf("Erro no servidor da api: %v", err)
+			fmt.Printf(i18n.T("cli_api_init_error")+"\n", err)
 			os.Exit(1)
 		}
 		return

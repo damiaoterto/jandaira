@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/damiaoterto/jandaira/internal/config"
+	"github.com/damiaoterto/jandaira/internal/i18n"
 	"github.com/damiaoterto/jandaira/internal/security"
 )
 
@@ -25,6 +26,7 @@ type WizardModel struct {
 }
 
 func NewWizardModel(filepath string) WizardModel {
+	i18n.Init()
 	styles := DefaultStyles()
 
 	ti := textinput.New()
@@ -37,6 +39,7 @@ func NewWizardModel(filepath string) WizardModel {
 
 	m := WizardModel{
 		config: &config.Config{
+			Language:   i18n.CurrentLang(),
 			Model:      "gpt-4o-mini",
 			SwarmName:  "enxame-alfa",
 			MaxNectar:  20000,
@@ -57,27 +60,30 @@ func (m *WizardModel) updatePrompt() {
 
 	switch m.index {
 	case 0:
+		m.input.Prompt = i18n.T("wizard_prompt_lang")
+		m.input.Placeholder = m.config.Language
+	case 1:
 		m.input.EchoMode = textinput.EchoPassword
 		m.input.EchoCharacter = '*'
-		m.input.Prompt = "1. Chave da API OpenAI (sk-...) "
-		m.input.Placeholder = "Se vazio, tenta ambiente..."
-	case 1:
-		m.input.Prompt = "2. Salvar configuração em "
-		m.input.Placeholder = m.savePath
+		m.input.Prompt = i18n.T("wizard_prompt_api_key")
+		m.input.Placeholder = i18n.T("wizard_place_api_key")
 	case 2:
-		m.input.Prompt = "3. Modelo OpenAI "
-		m.input.Placeholder = m.config.Model
+		m.input.Prompt = i18n.T("wizard_prompt_save_path")
+		m.input.Placeholder = m.savePath
 	case 3:
-		m.input.Prompt = "4. Nome do Enxame "
-		m.input.Placeholder = m.config.SwarmName
+		m.input.Prompt = i18n.T("wizard_prompt_model")
+		m.input.Placeholder = m.config.Model
 	case 4:
-		m.input.Prompt = "5. Limite de Néctar (Tokens) "
-		m.input.Placeholder = fmt.Sprintf("%d", m.config.MaxNectar)
+		m.input.Prompt = i18n.T("wizard_prompt_swarm")
+		m.input.Placeholder = m.config.SwarmName
 	case 5:
-		m.input.Prompt = "6. Modo Supervisionado? (S/n) "
-		m.input.Placeholder = "s"
+		m.input.Prompt = i18n.T("wizard_prompt_nectar")
+		m.input.Placeholder = fmt.Sprintf("%d", m.config.MaxNectar)
 	case 6:
-		m.input.Prompt = "7. Modo Isolado / Sandbox Wasm? (S/n) "
+		m.input.Prompt = i18n.T("wizard_prompt_supervised")
+		m.input.Placeholder = "s"
+	case 7:
+		m.input.Prompt = i18n.T("wizard_prompt_isolated")
 		m.input.Placeholder = "s"
 	}
 	m.input.SetValue("") // reset value
@@ -115,32 +121,37 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.index {
 			case 0:
 				if val != "" {
-					m.apiKey = val
+					m.config.Language = val
+					i18n.SetLanguage(val)
 				}
 			case 1:
 				if val != "" {
-					m.savePath = val
+					m.apiKey = val
 				}
 			case 2:
 				if val != "" {
-					m.config.Model = val
+					m.savePath = val
 				}
 			case 3:
 				if val != "" {
-					m.config.SwarmName = val
+					m.config.Model = val
 				}
 			case 4:
+				if val != "" {
+					m.config.SwarmName = val
+				}
+			case 5:
 				if val != "" {
 					n, err := strconv.Atoi(val)
 					if err == nil && n > 0 {
 						m.config.MaxNectar = n
 					}
 				}
-			case 5:
+			case 6:
 				if val != "" {
 					m.config.Supervised = strings.ToLower(val) != "n"
 				}
-			case 6:
+			case 7:
 				if val != "" {
 					m.config.Isolated = strings.ToLower(val) != "n"
 				}
@@ -149,7 +160,7 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.index++
 
 			// Finished asking?
-			if m.index > 6 {
+			if m.index > 7 {
 				m.done = true
 
 				if m.apiKey != "" {
@@ -192,8 +203,8 @@ func (m WizardModel) View() string {
 	// Banner
 	bannerTitle := lipgloss.JoinVertical(
 		lipgloss.Center,
-		m.styles.Title.Render("🍯 Configuração Inicial 🍯"),
-		m.styles.Subtitle.Render("Primeiro voo da Colmeia Jandaira"),
+		m.styles.Title.Render(i18n.T("wizard_title")),
+		m.styles.Subtitle.Render(i18n.T("wizard_subtitle")),
 	)
 	bannerBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -206,22 +217,22 @@ func (m WizardModel) View() string {
 	b.WriteString("\n\n")
 
 	if m.err != nil {
-		b.WriteString(m.styles.ErrorBubble.Render("Erro ao salvar configuração: " + m.err.Error()))
+		b.WriteString(m.styles.ErrorBubble.Render(i18n.T("wizard_err_save") + m.err.Error()))
 		return m.styles.App.Render(b.String())
 	}
 
 	if m.done {
-		b.WriteString(m.styles.Status.Render("✅ Configuração concluída!"))
+		b.WriteString(m.styles.Status.Render(i18n.T("wizard_success")))
 		return m.styles.App.Render(b.String())
 	}
 
-	b.WriteString(m.styles.SystemMessage.Render("A colmeia precisa de algumas definições antes de acordar."))
+	b.WriteString(m.styles.SystemMessage.Render(i18n.T("wizard_system_msg")))
 	b.WriteString("\n\n")
 
 	// Render the text input
 	b.WriteString(m.input.View())
 	b.WriteString("\n\n")
-	b.WriteString(m.styles.Footer.Render("↵ confirmar • esc sair (deixe em branco para o padrão)"))
+	b.WriteString(m.styles.Footer.Render(i18n.T("wizard_footer")))
 
 	return m.styles.App.Render(b.String())
 }
