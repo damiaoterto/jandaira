@@ -26,7 +26,6 @@ func main() {
 
 	ctx := context.Background()
 
-	// ── Config Load/Setup ──────────────────────────────────────────────────
 	configPath := config.GetDefaultPath()
 	cfg, err := config.Load(configPath)
 
@@ -62,7 +61,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ── Initialize Database and Environment ────────────────────────────────
 	honeycomb, err := brain.NewLocalVectorDB("./.jandaira/memory.json")
 	if err != nil {
 		fmt.Printf("Erro ao inicializar o banco vetorial: %v\n", err)
@@ -89,12 +87,11 @@ func main() {
 		apiKey = "sk-mock-key-para-testes"
 	}
 
-	modelType := "gpt-4o-mini"
+	modelType := "gpt-5.3-mini"
 	if cfg != nil {
 		modelType = cfg.Model
 	}
 
-	// ── Initialize the Hive Core ───────────────────────────────────────────
 	openAIBrain := brain.NewOpenAIBrain(apiKey, modelType)
 	groupQueue := queue.NewGroupQueue(3)
 	newQuen := swarm.NewQueen(groupQueue, openAIBrain, honeycomb)
@@ -102,6 +99,7 @@ func main() {
 	newQuen.EquipTool(&tool.ListDirectoryTool{})
 	newQuen.EquipTool(&tool.ReadFileTool{})
 	newQuen.EquipTool(&tool.WriteFileTool{})
+	newQuen.EquipTool(&tool.CreateDirectoryTool{})
 	newQuen.EquipTool(&tool.ExecuteCodeTool{})
 
 	if cfg != nil {
@@ -118,33 +116,8 @@ func main() {
 		})
 	}
 
-	desenvolvedora := swarm.Specialist{
-		Name: "Desenvolvedora Wasm",
-		SystemPrompt: `Você é a Desenvolvedora de Software da colmeia.
-			REGRAS:
-			1. Seu principal trabalho é escrever código limpo e seguro usando 'write_file'.
-			2. Se o usuário pedir para revisar ou modificar arquivos existentes, USE OBRIGATORIAMENTE a ferramenta 'read_file' para ler o conteúdo real do disco antes de responder.
-			3. VOCÊ NÃO TESTA CÓDIGO. Não tente usar ferramentas de execução.
-			4. Leia o objetivo, faça suas tarefas (leitura/escrita), e retorne uma mensagem sumário detalhando o que foi feito.`,
-		AllowedTools: []string{"write_file", "read_file", "list_directory"},
-	}
-
-	auditora := swarm.Specialist{
-		Name: "Auditora de Qualidade",
-		SystemPrompt: `Você é a Auditora de Qualidade e Segurança da colmeia.
-			REGRAS:
-			1. A sua função é ler, inspecionar e testar o código trabalhado na fase anterior.
-			2. USE OBRIGATORIAMENTE a ferramenta 'read_file' para extrair o código-fonte real dos ficheiros mencionados. NUNCA diga que não consegue ler arquivos; use a ferramenta para isso.
-			3. Se for adequado, use a ferramenta 'execute_code' para testar o código na Sandbox e ler a sua saída.
-			4. Faça um relatório de qualidade e segurança informando claramente os problemas detetados no código que leu.`,
-		AllowedTools: []string{"execute_code", "read_file", "list_directory"},
-	}
-
-	workflow := []swarm.Specialist{desenvolvedora, auditora}
-
-	// ── Start Server or TUI ──────────────────────────────────────────────
 	if *serverMode {
-		srv := api.NewServer(newQuen, workflow, *port, configPath)
+		srv := api.NewServer(newQuen, *port, configPath)
 		if err := srv.Start(); err != nil {
 			fmt.Printf(i18n.T("cli_api_init_error")+"\n", err)
 			os.Exit(1)
@@ -154,7 +127,16 @@ func main() {
 
 	fmt.Print("\033[H\033[2J")
 
-	p := tea.NewProgram(ui.InitialModel(newQuen, workflow, swarmName))
+	maxWorkers := 3
+	if cfg != nil && cfg.MaxAgents > 0 {
+		maxWorkers = cfg.MaxAgents
+	}
+
+	p := tea.NewProgram(
+		ui.InitialModel(newQuen, swarmName, maxWorkers),
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	)
 
 	newQuen.LogFunc = func(msg string) {
 		p.Send(ui.StatusMsg(msg))

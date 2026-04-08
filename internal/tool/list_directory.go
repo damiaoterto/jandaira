@@ -174,3 +174,45 @@ func (t *WriteFileTool) Execute(ctx context.Context, argsJSON string) (string, e
 
 	return fmt.Sprintf("Ficheiro '%s' escrito com sucesso no disco.", absPath), nil
 }
+
+type CreateDirectoryTool struct{}
+
+func (t *CreateDirectoryTool) Name() string { return "create_directory" }
+
+func (t *CreateDirectoryTool) Description() string {
+	return "Cria um novo diretório (e diretórios pai se não existirem), resolvendo o caminho a partir do CWD."
+}
+
+func (t *CreateDirectoryTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "O caminho completo do diretório a criar (ex: 'docs/images')",
+			},
+		},
+		"required": []string{"path"},
+	}
+}
+
+func (t *CreateDirectoryTool) Execute(ctx context.Context, argsJSON string) (string, error) {
+	var args struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("erro ao ler argumentos JSON: %w", err)
+	}
+
+	absPath, err := resolvePath(args.Path)
+	if err != nil {
+		return "", err
+	}
+
+	err = os.MkdirAll(absPath, 0755)
+	if err != nil {
+		return "", fmt.Errorf("erro ao criar diretório '%s': %w", absPath, err)
+	}
+
+	return fmt.Sprintf("Diretório '%s' criado com sucesso.", absPath), nil
+}

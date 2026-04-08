@@ -16,6 +16,7 @@ type Config struct {
 	Model      string `json:"model"`
 	SwarmName  string `json:"swarm_name"`
 	MaxNectar  int    `json:"max_nectar"`
+	MaxAgents  int    `json:"max_agents"`
 	Supervised bool   `json:"supervised"`
 	Isolated   bool   `json:"isolated"`
 }

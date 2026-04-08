@@ -33,7 +33,6 @@ var upgrader = websocket.Upgrader{
 
 type Server struct {
 	Queen      *swarm.Queen
-	Workflow   []swarm.Specialist
 	Port       int
 	configPath string
 
@@ -46,10 +45,9 @@ type Server struct {
 	pendingApprovalsMu sync.Mutex
 }
 
-func NewServer(q *swarm.Queen, w []swarm.Specialist, port int, configPath string) *Server {
+func NewServer(q *swarm.Queen, port int, configPath string) *Server {
 	s := &Server{
 		Queen:            q,
-		Workflow:         w,
 		Port:             port,
 		configPath:       configPath,
 		clients:          make(map[*websocket.Conn]bool),
@@ -266,7 +264,18 @@ func (s *Server) handleDispatch(c *gin.Context) {
 
 		s.Broadcast(WsMessage{Type: "status", Message: "🚀 Queen received the goal and is starting the swarm..."})
 
-		resultChan, errChan := s.Queen.DispatchWorkflow(ctx, req.GroupID, req.Goal, s.Workflow)
+		maxWorkers := 3
+		if cfg, err := config.Load(s.configPath); err == nil && cfg.MaxAgents > 0 {
+			maxWorkers = cfg.MaxAgents
+		}
+		
+		dynamicPipeline, err := s.Queen.AssembleSwarm(ctx, req.Goal, maxWorkers)
+		if err != nil {
+			s.Broadcast(WsMessage{Type: "error", Message: fmt.Sprintf("Error planning the swarm: %v", err)})
+			return
+		}
+
+		resultChan, errChan := s.Queen.DispatchWorkflow(ctx, req.GroupID, req.Goal, dynamicPipeline)
 
 		select {
 		case res := <-resultChan:
@@ -299,15 +308,6 @@ func (s *Server) handleListTools(c *gin.Context) {
 }
 
 func (s *Server) handleListAgents(c *gin.Context) {
-	agentsList := make([]map[string]interface{}, 0)
-
-	for _, agent := range s.Workflow {
-		agentsList = append(agentsList, map[string]interface{}{
-			"name":          agent.Name,
-			"system_prompt": agent.SystemPrompt,
-			"allowed_tools": agent.AllowedTools,
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{"agents": agentsList})
+	// Since agents are assembled dynamically per request, we don't have a static list anymore.
+	c.JSON(http.StatusOK, gin.H{"agents": []map[string]interface{}{}})
 }
