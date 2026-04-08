@@ -413,6 +413,17 @@ Todos os eventos trafegam como JSON pelo mesmo canal WebSocket. O Apicultor **n�
 
 ---
 
+## ⚖️ Licença e Uso Comercial (Dual License)
+
+O **Jandaira Swarm OS** é distribuído sob um modelo de licenciamento duplo (*Dual License*), projetado para fomentar o desenvolvimento de código aberto enquanto atende às necessidades de empresas.
+
+* **Uso Open Source (AGPLv3):** O código-fonte está disponível gratuitamente sob a licença [GNU Affero General Public License v3.0](LICENCE). Qualquer pessoa ou organização pode usar, modificar e distribuir o software livremente, desde que todas as modificações e o código-fonte de projetos derivados (incluindo serviços SaaS e backend prestados via rede) também sejam disponibilizados sob a mesma licença.
+* **Uso Comercial Empresarial:** Para empresas que desejam integrar o Jandaira em produtos comerciais proprietários, serviços web (SaaS) ou backends corporativos sem a obrigatoriedade de abrir o código-fonte de suas próprias aplicações, oferecemos a **Licença Comercial**.
+
+**Resumo:** O projeto é aberto e gratuito para a comunidade de código aberto. Organizações com restrições de compliance podem adquirir uma licença comercial para manter sua propriedade intelectual totalmente protegida. Para detalhes comerciais, entre em contato.
+
+---
+
 ## 🤝 Contribuindo
 
 Pull Requests são bem-vindos! Abra uma issue descrevendo a feature ou bug antes de começar.

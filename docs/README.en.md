@@ -405,6 +405,17 @@ All events are exchanged as JSON over the same WebSocket channel. The Beekeeper 
 
 ---
 
+## ⚖️ License and Commercial Use (Dual License)
+
+**Jandaira Swarm OS** is distributed under a dual-licensing model, designed to foster open-source development while meeting corporate compliance needs.
+
+* **Open Source Use (AGPLv3):** The source code is freely available under the [GNU Affero General Public License v3.0](../LICENCE). Anyone can use, modify, and distribute the software for free, provided that all modifications and the source code of derivative projects (including SaaS and backend network services) are also made available under the same license.
+* **Enterprise Commercial Use:** For companies looking to integrate Jandaira into proprietary commercial products, web services (SaaS), or corporate backends without being required to open-source their own applications, we offer a **Commercial License**.
+
+**Summary:** The project is open and free for the open-source community. Organizations with strict compliance requirements can purchase a commercial license to keep their intellectual property completely private. For commercial inquiries, please contact the maintainers.
+
+---
+
 ## 🤝 Contributing
 
 Pull Requests are welcome! Open an issue describing the feature or bug before starting.

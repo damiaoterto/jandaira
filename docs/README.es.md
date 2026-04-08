@@ -56,6 +56,17 @@ Cuando lo inicies, el **Bubble Tea Wizard** te guiará para configurar la clave 
 Cada "pase de testigo" entre Especialistas está **encriptado de extremo a extremo con AES-GCM**.
 Además, los créditos, llaves y accesos son gestionados estáticamente localmente usando nuestro propio paquete `internal/security/vault.go` protegiendo tu clave API de accesos por otros procesos o usuarios no autorizados por el OS.
 
+## ⚖️ Licencia y Uso Comercial (Licencia Dual)
+
+**Jandaira Swarm OS** se distribuye bajo un modelo de licencia dual, diseñado para fomentar el desarrollo de código abierto al mismo tiempo que satisface las necesidades empresariales.
+
+* **Uso de Código Abierto (AGPLv3):** El código fuente está disponible gratuitamente bajo la licencia [GNU Affero General Public License v3.0](../LICENCE). Cualquiera puede utilizar, modificar y distribuir el software libremente, siempre y cuando todas las modificaciones y el código fuente de los proyectos derivados (incluyendo SaaS y servicios de red) también se publiquen bajo la misma licencia.
+* **Uso Comercial Corporativo:** Para aquellas empresas que deseen integrar Jandaira en productos comerciales propietarios, servicios web (SaaS) o backends corporativos sin la obligación de abrir el código fuente de sus propias aplicaciones, ofrecemos una **Licencia Comercial**.
+
+**Resumen:** El proyecto es abierto y gratuito para la comunidad. Las organizaciones con fuertes requisitos de cumplimiento pueden adquirir una licencia comercial para mantener su propiedad intelectual protegida. Para consultas comerciales, póngase en contacto con los mantenedores.
+
+---
+
 ## 🤝 Contribuyendo
 
 ¡Pull Requests son bienvenidos! Abre un caso (issue) describiendo la funcionalidad antes de iniciar grandes cambios.
