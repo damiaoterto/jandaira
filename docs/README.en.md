@@ -395,16 +395,6 @@ All events are exchanged as JSON over the same WebSocket channel. The Beekeeper 
 
 ---
 
-## 🛣️ Roadmap
-
-- [ ] Web Interface (Svelte + `go:embed`)
-- [ ] Multi-LLM support (Anthropic, Gemini, Ollama)
-- [x] Full Wasm sandbox per agent (isolated VFS via `wazero`)
-- [ ] Nectar metrics dashboard (cost per mission)
-- [ ] PDF/Markdown report export
-
----
-
 ## ⚖️ License and Commercial Use (Dual License)
 
 **Jandaira Swarm OS** is distributed under a dual-licensing model, designed to foster open-source development while meeting corporate compliance needs.

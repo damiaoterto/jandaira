@@ -403,16 +403,6 @@ Todos os eventos trafegam como JSON pelo mesmo canal WebSocket. O Apicultor **n�
 
 ---
 
-## 🛣️ Roadmap
-
-- [ ] Interface Web (Svelte + `go:embed`)
-- [ ] Suporte a múltiplos LLMs (Anthropic, Gemini, Ollama)
-- [x] Sandbox Wasm completo por agente (VFS isolado via `wazero`)
-- [ ] Dashboard de métricas de Néctar (custo por missão)
-- [ ] Exportação de relatórios em PDF/Markdown
-
----
-
 ## ⚖️ Licença e Uso Comercial (Dual License)
 
 O **Jandaira Swarm OS** é distribuído sob um modelo de licenciamento duplo (*Dual License*), projetado para fomentar o desenvolvimento de código aberto enquanto atende às necessidades de empresas.

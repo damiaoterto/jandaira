@@ -395,16 +395,6 @@ workflow := []swarm.Specialist{researcher, writer}
 
 ---
 
-## 🛣️ 路线图
-
-- [ ] Web 界面（Svelte + `go:embed`）
-- [ ] 多 LLM 支持（Anthropic、Gemini、Ollama）
-- [x] 每个智能体的完整 Wasm 沙箱（通过 `wazero` 的隔离 VFS）
-- [ ] 花蜜指标仪表板（每次任务的成本）
-- [ ] PDF/Markdown 报告导出
-
----
-
 ## ⚖️ 许可与商业用途 (双重许可制)
 
 **Jandaira Swarm OS** 采用双重许可模式分发，旨在促进开源社区发展的同时满足企业合规需求。
