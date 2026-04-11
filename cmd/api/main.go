@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -10,9 +11,12 @@ import (
 	"github.com/damiaoterto/jandaira/internal/api"
 	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/config"
+	"github.com/damiaoterto/jandaira/internal/database"
 	"github.com/damiaoterto/jandaira/internal/i18n"
 	"github.com/damiaoterto/jandaira/internal/queue"
+	"github.com/damiaoterto/jandaira/internal/repository"
 	"github.com/damiaoterto/jandaira/internal/security"
+	"github.com/damiaoterto/jandaira/internal/service"
 	"github.com/damiaoterto/jandaira/internal/swarm"
 	"github.com/damiaoterto/jandaira/internal/tool"
 )
@@ -23,8 +27,23 @@ func main() {
 
 	ctx := context.Background()
 
-	configPath := config.GetDefaultPath()
-	cfg, _ := config.Load(configPath)
+	// ── Database ──────────────────────────────────────────────────────────────
+	db, err := database.Open(config.GetDefaultPath())
+	if err != nil {
+		fmt.Printf("Erro ao abrir banco de dados: %v\n", err)
+		os.Exit(1)
+	}
+
+	// ── Repository + Service ──────────────────────────────────────────────────
+	cfgRepo := repository.NewConfigRepository(db)
+	cfgService := service.NewConfigService(cfgRepo)
+
+	// ── Load config (optional at startup — setup may happen via API) ──────────
+	cfg, err := cfgService.Load()
+	if err != nil && !errors.Is(err, service.ErrNotConfigured) {
+		fmt.Printf("Erro ao carregar configuração: %v\n", err)
+		os.Exit(1)
+	}
 
 	if cfg != nil && cfg.Language != "" {
 		i18n.SetLanguage(cfg.Language)
@@ -37,6 +56,7 @@ func main() {
 		swarmName = cfg.SwarmName
 	}
 
+	// ── Brain (vector DB) ─────────────────────────────────────────────────────
 	honeycomb, err := brain.NewLocalVectorDB("./.jandaira/memory.json")
 	if err != nil {
 		fmt.Printf("Error initializing local vector database: %v\n", err)
@@ -44,6 +64,7 @@ func main() {
 	}
 	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)
 
+	// ── API key ───────────────────────────────────────────────────────────────
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
 		repoDir := security.GetDefaultVaultDir()
@@ -53,7 +74,6 @@ func main() {
 			}
 		}
 	}
-	
 	if apiKey != "" {
 		os.Setenv("OPENAI_API_KEY", apiKey)
 	} else {
@@ -61,32 +81,23 @@ func main() {
 		apiKey = "sk-mock-key-for-testing"
 	}
 
-	modelType := "gpt-5.4-nano"
+	modelType := "gpt-4o-mini"
 	if cfg != nil && cfg.Model != "" {
 		modelType = cfg.Model
 	}
 
-	brain := brain.NewOpenAIBrain(apiKey, modelType)
+	// ── Swarm ─────────────────────────────────────────────────────────────────
+	openAIBrain := brain.NewOpenAIBrain(apiKey, modelType)
 	groupQueue := queue.NewGroupQueue(3)
-	queen := swarm.NewQueen(groupQueue, brain, honeycomb)
+	queen := swarm.NewQueen(groupQueue, openAIBrain, honeycomb)
 
 	queen.EquipTool(&tool.ListDirectoryTool{})
 	queen.EquipTool(&tool.ReadFileTool{})
 	queen.EquipTool(&tool.WriteFileTool{})
 	queen.EquipTool(&tool.CreateDirectoryTool{})
 	queen.EquipTool(&tool.ExecuteCodeTool{})
-
-	queen.EquipTool(&tool.SearchMemoryTool{
-		Brain:      brain,
-		Honeycomb:  honeycomb,
-		Collection: swarmName,
-	})
-
-	queen.EquipTool(&tool.StoreMemoryTool{
-		Brain:      brain,
-		Honeycomb:  honeycomb,
-		Collection: swarmName,
-	})
+	queen.EquipTool(&tool.SearchMemoryTool{Brain: openAIBrain, Honeycomb: honeycomb, Collection: swarmName})
+	queen.EquipTool(&tool.StoreMemoryTool{Brain: openAIBrain, Honeycomb: honeycomb, Collection: swarmName})
 
 	if cfg != nil {
 		queen.RegisterSwarm(swarmName, swarm.Policy{
@@ -95,6 +106,7 @@ func main() {
 			RequiresApproval: cfg.Supervised,
 		})
 	} else {
+		// Default policy — will be overwritten when /api/setup is called.
 		queen.RegisterSwarm(swarmName, swarm.Policy{
 			MaxNectar:        20000,
 			Isolate:          true,
@@ -102,15 +114,12 @@ func main() {
 		})
 	}
 
-	server := api.NewServer(queen, *port, configPath)
+	// ── HTTP server ───────────────────────────────────────────────────────────
+	server := api.NewServer(queen, *port, cfgService)
 
-	// LogFunc: forwards all Queen logs to connected WebSocket clients
 	queen.LogFunc = func(msg string) {
 		server.Broadcast(api.WsMessage{Type: "status", Message: msg})
 	}
-
-	// AskPermissionFunc: delegates to RequestApproval so each request gets a unique ID.
-	// AgentChangeFunc and ToolStartFunc are wired automatically inside NewServer.
 	queen.AskPermissionFunc = func(toolName string, args string) {
 		server.RequestApproval(toolName, args)
 	}

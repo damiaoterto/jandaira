@@ -8,40 +8,43 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/damiaoterto/jandaira/internal/config"
 	"github.com/damiaoterto/jandaira/internal/i18n"
+	"github.com/damiaoterto/jandaira/internal/model"
 	"github.com/damiaoterto/jandaira/internal/security"
+	"github.com/damiaoterto/jandaira/internal/service"
 )
 
 // totalWizardSteps is the number of questions in the wizard (indices 0..totalWizardSteps-1).
-const totalWizardSteps = 9
+// Steps: 0=language, 1=api_key, 2=model, 3=swarm_name, 4=max_nectar, 5=max_agents,
+//
+//	6=supervised, 7=isolated
+const totalWizardSteps = 8
 
 type WizardModel struct {
-	config   *config.Config
-	apiKey   string
-	index    int
-	input    textinput.Model
-	styles   *Styles
-	width    int
-	done     bool
-	err      error
-	savePath string
+	config     *model.AppConfig
+	apiKey     string
+	index      int
+	input      textinput.Model
+	styles     *Styles
+	width      int
+	done       bool
+	err        error
+	cfgService service.ConfigService
 }
 
-func NewWizardModel(filepath string) WizardModel {
+func NewWizardModel(cfgService service.ConfigService) WizardModel {
 	i18n.Init()
 	styles := DefaultStyles()
 
 	ti := textinput.New()
 	ti.Focus()
 	ti.CharLimit = 156
-	// width will be set dynamically via WindowSizeMsg
 	ti.Width = 50
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(DefaultTheme.Secondary).Bold(true)
 	ti.TextStyle = lipgloss.NewStyle().Foreground(DefaultTheme.Primary)
 
 	m := WizardModel{
-		config: &config.Config{
+		config: &model.AppConfig{
 			Language:   i18n.CurrentLang(),
 			Model:      "gpt-4o-mini",
 			SwarmName:  "enxame-alfa",
@@ -50,9 +53,9 @@ func NewWizardModel(filepath string) WizardModel {
 			Supervised: true,
 			Isolated:   true,
 		},
-		input:    ti,
-		styles:   styles,
-		savePath: filepath,
+		input:      ti,
+		styles:     styles,
+		cfgService: cfgService,
 	}
 
 	m.updatePrompt()
@@ -72,28 +75,25 @@ func (m *WizardModel) updatePrompt() {
 		m.input.Prompt = i18n.T("wizard_prompt_api_key")
 		m.input.Placeholder = i18n.T("wizard_place_api_key")
 	case 2:
-		m.input.Prompt = i18n.T("wizard_prompt_save_path")
-		m.input.Placeholder = m.savePath
-	case 3:
 		m.input.Prompt = i18n.T("wizard_prompt_model")
 		m.input.Placeholder = m.config.Model
-	case 4:
+	case 3:
 		m.input.Prompt = i18n.T("wizard_prompt_swarm")
 		m.input.Placeholder = m.config.SwarmName
-	case 5:
+	case 4:
 		m.input.Prompt = i18n.T("wizard_prompt_nectar")
 		m.input.Placeholder = fmt.Sprintf("%d", m.config.MaxNectar)
-	case 6:
+	case 5:
 		m.input.Prompt = i18n.T("wizard_prompt_max_agents")
 		m.input.Placeholder = fmt.Sprintf("%d", m.config.MaxAgents)
-	case 7:
+	case 6:
 		m.input.Prompt = i18n.T("wizard_prompt_supervised")
 		m.input.Placeholder = "s"
-	case 8:
+	case 7:
 		m.input.Prompt = i18n.T("wizard_prompt_isolated")
 		m.input.Placeholder = "s"
 	}
-	m.input.SetValue("") // reset value
+	m.input.SetValue("")
 }
 
 func (m WizardModel) Init() tea.Cmd {
@@ -110,7 +110,6 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		// Maintain a reasonable width for the input text area
 		if m.width > 20 {
 			m.input.Width = m.width - 20
 		}
@@ -124,7 +123,6 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			val := strings.TrimSpace(m.input.Value())
 
-			// Process current answer
 			switch m.index {
 			case 0:
 				if val != "" {
@@ -137,35 +135,31 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case 2:
 				if val != "" {
-					m.savePath = val
+					m.config.Model = val
 				}
 			case 3:
 				if val != "" {
-					m.config.Model = val
-				}
-			case 4:
-				if val != "" {
 					m.config.SwarmName = val
 				}
-			case 5:
+			case 4:
 				if val != "" {
 					n, err := strconv.Atoi(val)
 					if err == nil && n > 0 {
 						m.config.MaxNectar = n
 					}
 				}
-			case 6:
+			case 5:
 				if val != "" {
 					n, err := strconv.Atoi(val)
 					if err == nil && n > 0 {
 						m.config.MaxAgents = n
 					}
 				}
-			case 7:
+			case 6:
 				if val != "" {
 					m.config.Supervised = strings.ToLower(val) != "n"
 				}
-			case 8:
+			case 7:
 				if val != "" {
 					m.config.Isolated = strings.ToLower(val) != "n"
 				}
@@ -173,9 +167,7 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			m.index++
 
-			// Finished asking all questions?
 			if m.index >= totalWizardSteps {
-				// Persist API key in the encrypted vault before saving config.
 				if m.apiKey != "" {
 					repoDir := security.GetDefaultVaultDir()
 					v, vErr := security.InitVault(repoDir)
@@ -189,7 +181,7 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
-				if saveErr := config.Save(m.savePath, m.config); saveErr != nil {
+				if saveErr := m.cfgService.Save(m.config); saveErr != nil {
 					m.err = saveErr
 					return m, tea.Quit
 				}
@@ -198,7 +190,6 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 
-			// Prepare next question
 			m.updatePrompt()
 		}
 	}
@@ -210,7 +201,7 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m WizardModel) View() string {
 	width := m.width
 	if width == 0 {
-		width = 80 // fallback before WindowSizeMsg
+		width = 80
 	}
 
 	contentWidth := width - 4
@@ -220,7 +211,6 @@ func (m WizardModel) View() string {
 
 	var b strings.Builder
 
-	// Banner
 	bannerTitle := lipgloss.JoinVertical(
 		lipgloss.Center,
 		m.styles.Title.Render(i18n.T("wizard_title")),
@@ -248,8 +238,6 @@ func (m WizardModel) View() string {
 
 	b.WriteString(m.styles.SystemMessage.Render(i18n.T("wizard_system_msg")))
 	b.WriteString("\n\n")
-
-	// Render the text input
 	b.WriteString(m.input.View())
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.Footer.Render(i18n.T("wizard_footer")))

@@ -13,9 +13,12 @@ import (
 	"github.com/damiaoterto/jandaira/internal/api"
 	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/config"
+	"github.com/damiaoterto/jandaira/internal/database"
 	"github.com/damiaoterto/jandaira/internal/i18n"
 	"github.com/damiaoterto/jandaira/internal/queue"
+	"github.com/damiaoterto/jandaira/internal/repository"
 	"github.com/damiaoterto/jandaira/internal/security"
+	"github.com/damiaoterto/jandaira/internal/service"
 	"github.com/damiaoterto/jandaira/internal/swarm"
 	"github.com/damiaoterto/jandaira/internal/tool"
 	"github.com/damiaoterto/jandaira/internal/ui"
@@ -28,8 +31,19 @@ func main() {
 
 	ctx := context.Background()
 
-	configPath := config.GetDefaultPath()
-	cfg, err := config.Load(configPath)
+	// ── Database ──────────────────────────────────────────────────────────────
+	db, err := database.Open(config.GetDefaultPath())
+	if err != nil {
+		fmt.Printf("Erro ao abrir banco de dados: %v\n", err)
+		os.Exit(1)
+	}
+
+	// ── Repository + Service ──────────────────────────────────────────────────
+	cfgRepo := repository.NewConfigRepository(db)
+	cfgService := service.NewConfigService(cfgRepo)
+
+	// ── Load config ───────────────────────────────────────────────────────────
+	cfg, err := cfgService.Load()
 
 	if err == nil && cfg.Language != "" {
 		i18n.SetLanguage(cfg.Language)
@@ -37,32 +51,28 @@ func main() {
 		i18n.Init()
 	}
 
-	if errors.Is(err, config.ErrConfigNotFound) {
+	if errors.Is(err, service.ErrNotConfigured) {
 		if *serverMode {
-			// Start API in setup mode
 			fmt.Println("⚠️ Configuração não encontrada. Iniciando servidor no modo Setup via API...")
-			// Create dummy Queen specifically to wait for setup or just start setup API.
-			// Actually we will initialize the Server and it will intercept routes.
 		} else {
-			// Start CLI UI specific for Wizard
-			fmt.Print("\033[H\033[2J") // Limpa o terminal
-			p := tea.NewProgram(ui.NewWizardModel(configPath))
+			fmt.Print("\033[H\033[2J")
+			p := tea.NewProgram(ui.NewWizardModel(cfgService))
 			if _, err := p.Run(); err != nil {
 				fmt.Printf("Erro no assistente: %v\n", err)
 				os.Exit(1)
 			}
-			// Attempt to load again after wizard
-			cfg, err = config.Load(configPath)
+			cfg, err = cfgService.Load()
 			if err != nil {
 				fmt.Println("⚠️ Configuração interrompida ou incompleta. Encerrando.")
 				os.Exit(0)
 			}
 		}
 	} else if err != nil {
-		fmt.Printf("Erro ao carregar o arquivo de configuração: %v\n", err)
+		fmt.Printf("Erro ao carregar configuração: %v\n", err)
 		os.Exit(1)
 	}
 
+	// ── Brain (vector DB) ─────────────────────────────────────────────────────
 	honeycomb, err := brain.NewLocalVectorDB("./.jandaira/memory.json")
 	if err != nil {
 		fmt.Printf("Erro ao inicializar o banco vetorial: %v\n", err)
@@ -74,6 +84,8 @@ func main() {
 		swarmName = cfg.SwarmName
 	}
 	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)
+
+	// ── API key ───────────────────────────────────────────────────────────────
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
 		repoDir := security.GetDefaultVaultDir()
@@ -97,11 +109,12 @@ func main() {
 		os.Setenv("OPENAI_API_KEY", apiKey)
 	}
 
-	modelType := "gpt-5.3-mini"
+	modelType := "gpt-4o-mini"
 	if cfg != nil {
 		modelType = cfg.Model
 	}
 
+	// ── Swarm ─────────────────────────────────────────────────────────────────
 	openAIBrain := brain.NewOpenAIBrain(apiKey, modelType)
 	groupQueue := queue.NewGroupQueue(3)
 	newQuen := swarm.NewQueen(groupQueue, openAIBrain, honeycomb)
@@ -127,7 +140,7 @@ func main() {
 	}
 
 	if *serverMode {
-		srv := api.NewServer(newQuen, *port, configPath)
+		srv := api.NewServer(newQuen, *port, cfgService)
 		if err := srv.Start(); err != nil {
 			fmt.Printf(i18n.T("cli_api_init_error")+"\n", err)
 			os.Exit(1)
@@ -135,6 +148,7 @@ func main() {
 		return
 	}
 
+	// ── CLI UI ────────────────────────────────────────────────────────────────
 	fmt.Print("\033[H\033[2J")
 
 	maxWorkers := 3
@@ -151,9 +165,6 @@ func main() {
 	newQuen.LogFunc = func(msg string) {
 		p.Send(ui.StatusMsg(msg))
 	}
-
-	// INTERRUPÇÃO DO APICULTOR: quando RequiresApproval=true, a Rainha pausa
-	// e envia um PermissionMsg para a UI que exibe o painel de aprovação.
 	newQuen.AskPermissionFunc = func(toolName string, args string) {
 		p.Send(ui.PermissionMsg{ToolName: toolName, Args: args})
 	}
