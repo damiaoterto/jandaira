@@ -13,14 +13,26 @@ import (
 )
 
 // WsMessage is the JSON structure sent and received by the frontend via WebSocket.
+//
+// Outbound types (server → frontend):
+//   - "status"           – generic progress message from the queen or a handler
+//   - "log"              – raw log line emitted by the queen during a workflow
+//   - "agent_change"     – a new specialist agent has taken over (Agent field is set)
+//   - "tool_start"       – an agent is about to execute a tool (Agent, Tool, Args are set)
+//   - "approval_request" – the queen needs human approval before running a tool (ID, Tool, Args are set)
+//   - "result"           – the workflow finished successfully (Message contains the final report)
+//   - "error"            – the workflow failed or an unexpected condition occurred
+//
+// Inbound types (frontend → server):
+//   - "approve" – the user approved or rejected a pending request (ID and Approved are set)
 type WsMessage struct {
-	Type     string `json:"type"`         // "status", "approval_request", "approve", "result", "error", "agent_change", "tool_start"
-	ID       string `json:"id,omitempty"` // unique ID of the approval request
+	Type     string `json:"type"`
+	ID       string `json:"id,omitempty"`       // approval request ID
 	Message  string `json:"message,omitempty"`
 	Tool     string `json:"tool,omitempty"`
 	Args     string `json:"args,omitempty"`
 	Agent    string `json:"agent,omitempty"`
-	Approved bool   `json:"approved,omitempty"` // used by the frontend to respond (true/false)
+	Approved bool   `json:"approved,omitempty"` // inbound: true = approved, false = denied
 }
 
 var upgrader = websocket.Upgrader{
@@ -54,12 +66,20 @@ func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessi
 		pendingApprovals: make(map[string]bool),
 	}
 
+	q.LogFunc = func(msg string) {
+		s.Broadcast(WsMessage{Type: "log", Message: msg})
+	}
+
 	q.AgentChangeFunc = func(agentName string) {
 		s.Broadcast(WsMessage{Type: "agent_change", Agent: agentName})
 	}
 
 	q.ToolStartFunc = func(agentName string, toolName string, args string) {
 		s.Broadcast(WsMessage{Type: "tool_start", Agent: agentName, Tool: toolName, Args: args})
+	}
+
+	q.AskPermissionFunc = func(toolName string, args string) {
+		s.RequestApproval(toolName, args)
 	}
 
 	return s

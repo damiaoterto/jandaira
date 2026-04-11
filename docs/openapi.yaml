@@ -369,12 +369,13 @@ paths:
 
         | `type`             | Description |
         |--------------------|-------------|
-        | `status`           | General progress message |
-        | `agent_change`     | A new agent became active (`agent` field set) |
-        | `tool_start`       | An agent started a tool call (`agent`, `tool`, `args` fields set) |
+        | `status`           | General progress message from the queen or a handler |
+        | `log`              | Raw internal log line emitted by the queen during planning or execution |
+        | `agent_change`     | A new specialist agent became active (`agent` field set) |
+        | `tool_start`       | An agent is about to execute a tool (`agent`, `tool`, `args` fields set) |
         | `approval_request` | Tool call requires human approval (`id`, `tool`, `args` fields set) |
         | `result`           | Workflow completed successfully (`message` contains the final output) |
-        | `error`            | Workflow failed (`message` contains the error) |
+        | `error`            | Workflow failed or timed out (`message` contains the reason) |
 
         **Client → Server message types:**
 
@@ -544,7 +545,7 @@ components:
       properties:
         type:
           type: string
-          enum: [status, approval_request, approve, result, error, agent_change, tool_start]
+          enum: [status, log, approval_request, approve, result, error, agent_change, tool_start]
           example: "status"
         id:
           type: string
