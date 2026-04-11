@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/damiaoterto/jandaira/internal/api"
 	"github.com/damiaoterto/jandaira/internal/brain"
@@ -43,16 +44,19 @@ func main() {
 	}
 	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)
 
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
 		repoDir := security.GetDefaultVaultDir()
 		if v, err := security.InitVault(repoDir); err == nil {
 			if key, err := v.GetSecret("OPENAI_API_KEY"); err == nil {
-				apiKey = key
+				apiKey = strings.TrimSpace(key)
 			}
 		}
 	}
-	if apiKey == "" {
+	
+	if apiKey != "" {
+		os.Setenv("OPENAI_API_KEY", apiKey)
+	} else {
 		fmt.Println(i18n.T("warn_api_key_not_set"))
 		apiKey = "sk-mock-key-for-testing"
 	}

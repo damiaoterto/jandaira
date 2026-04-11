@@ -66,7 +66,7 @@ func (t *ExecuteCodeTool) Execute(ctx context.Context, argsJSON string) (string,
 	}
 
 	// 3. Criar a Célula Sandbox (Isolamento total com wazero)
-	cell, err := security.NewCell(ctx)
+	cell, err := security.NewCell(ctx, []string{"OPENAI_API_KEY"})
 	if err != nil {
 		return "", fmt.Errorf("erro ao criar célula Wasm: %w", err)
 	}

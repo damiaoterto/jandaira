@@ -13,6 +13,9 @@ import (
 	"github.com/damiaoterto/jandaira/internal/security"
 )
 
+// totalWizardSteps is the number of questions in the wizard (indices 0..totalWizardSteps-1).
+const totalWizardSteps = 9
+
 type WizardModel struct {
 	config   *config.Config
 	apiKey   string
@@ -43,6 +46,7 @@ func NewWizardModel(filepath string) WizardModel {
 			Model:      "gpt-4o-mini",
 			SwarmName:  "enxame-alfa",
 			MaxNectar:  20000,
+			MaxAgents:  3,
 			Supervised: true,
 			Isolated:   true,
 		},
@@ -80,9 +84,12 @@ func (m *WizardModel) updatePrompt() {
 		m.input.Prompt = i18n.T("wizard_prompt_nectar")
 		m.input.Placeholder = fmt.Sprintf("%d", m.config.MaxNectar)
 	case 6:
+		m.input.Prompt = i18n.T("wizard_prompt_max_agents")
+		m.input.Placeholder = fmt.Sprintf("%d", m.config.MaxAgents)
+	case 7:
 		m.input.Prompt = i18n.T("wizard_prompt_supervised")
 		m.input.Placeholder = "s"
-	case 7:
+	case 8:
 		m.input.Prompt = i18n.T("wizard_prompt_isolated")
 		m.input.Placeholder = "s"
 	}
@@ -149,9 +156,16 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case 6:
 				if val != "" {
-					m.config.Supervised = strings.ToLower(val) != "n"
+					n, err := strconv.Atoi(val)
+					if err == nil && n > 0 {
+						m.config.MaxAgents = n
+					}
 				}
 			case 7:
+				if val != "" {
+					m.config.Supervised = strings.ToLower(val) != "n"
+				}
+			case 8:
 				if val != "" {
 					m.config.Isolated = strings.ToLower(val) != "n"
 				}
@@ -159,22 +173,28 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			m.index++
 
-			// Finished asking?
-			if m.index > 7 {
-				m.done = true
-
+			// Finished asking all questions?
+			if m.index >= totalWizardSteps {
+				// Persist API key in the encrypted vault before saving config.
 				if m.apiKey != "" {
 					repoDir := security.GetDefaultVaultDir()
-					if v, err := security.InitVault(repoDir); err == nil {
-						_ = v.SaveSecret("OPENAI_API_KEY", m.apiKey)
+					v, vErr := security.InitVault(repoDir)
+					if vErr != nil {
+						m.err = fmt.Errorf("erro ao inicializar cofre de segredos: %w", vErr)
+						return m, tea.Quit
+					}
+					if saveErr := v.SaveSecret("OPENAI_API_KEY", m.apiKey); saveErr != nil {
+						m.err = fmt.Errorf("erro ao salvar chave API no cofre: %w", saveErr)
+						return m, tea.Quit
 					}
 				}
 
-				err := config.Save(m.savePath, m.config)
-				if err != nil {
-					m.err = err
+				if saveErr := config.Save(m.savePath, m.config); saveErr != nil {
+					m.err = saveErr
+					return m, tea.Quit
 				}
-				// Quit right after setting done to true so main.go can resume
+
+				m.done = true
 				return m, tea.Quit
 			}
 

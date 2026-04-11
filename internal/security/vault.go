@@ -36,6 +36,9 @@ func InitVault(dir string) (*Vault, error) {
 		if err != nil {
 			return nil, fmt.Errorf("erro ao ler chave mestra: %w", err)
 		}
+		if len(masterKey) != 32 {
+			return nil, fmt.Errorf("chave mestra corrompida: tamanho inválido (%d bytes, esperado 32)", len(masterKey))
+		}
 	}
 
 	return &Vault{

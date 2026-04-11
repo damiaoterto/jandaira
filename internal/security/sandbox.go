@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
@@ -16,7 +18,9 @@ type Cell struct {
 }
 
 // NewCell initializes a new wazero runtime and default configuration.
-func NewCell(ctx context.Context) (*Cell, error) {
+// envVars is an explicit allowlist of env var names to forward into the sandbox.
+// Only vars present in this list and set in the host environment are forwarded.
+func NewCell(ctx context.Context, envVars []string) (*Cell, error) {
 	// Create a new wazero runtime.
 	r := wazero.NewRuntime(ctx)
 
@@ -24,10 +28,18 @@ func NewCell(ctx context.Context) (*Cell, error) {
 	wasi_snapshot_preview1.MustInstantiate(ctx, r)
 
 	// Default configuration: no access to host FS, no network, restricted env vars.
+	// stdin is an empty reader — never wraps nil to avoid panics on wasm reads.
 	config := wazero.NewModuleConfig().
-		WithStdout(io.Discard). // Can be redirected to a buffer later
+		WithStdout(io.Discard).
 		WithStderr(io.Discard).
-		WithStdin(io.NopCloser(nil))
+		WithStdin(io.NopCloser(strings.NewReader("")))
+
+	// Forward only explicitly requested env vars from the host environment.
+	for _, envName := range envVars {
+		if val := os.Getenv(envName); val != "" {
+			config = config.WithEnv(envName, val)
+		}
+	}
 
 	return &Cell{
 		runtime: r,

@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -35,7 +37,7 @@ func main() {
 		i18n.Init()
 	}
 
-	if err == config.ErrConfigNotFound {
+	if errors.Is(err, config.ErrConfigNotFound) {
 		if *serverMode {
 			// Start API in setup mode
 			fmt.Println("⚠️ Configuração não encontrada. Iniciando servidor no modo Setup via API...")
@@ -72,19 +74,27 @@ func main() {
 		swarmName = cfg.SwarmName
 	}
 	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)
-
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
 		repoDir := security.GetDefaultVaultDir()
-		if v, err := security.InitVault(repoDir); err == nil {
-			if key, err := v.GetSecret("OPENAI_API_KEY"); err == nil {
-				apiKey = key
+		v, vErr := security.InitVault(repoDir)
+		if vErr != nil {
+			fmt.Printf("⚠️  Cofre indisponível: %v\n", vErr)
+		} else {
+			key, kErr := v.GetSecret("OPENAI_API_KEY")
+			if kErr != nil {
+				fmt.Printf("⚠️  Chave API não encontrada no cofre: %v\n", kErr)
+			} else {
+				apiKey = strings.TrimSpace(key)
 			}
 		}
 	}
+
 	if apiKey == "" {
 		fmt.Println(i18n.T("warn_api_key_not_set"))
 		apiKey = "sk-mock-key-para-testes"
+	} else {
+		os.Setenv("OPENAI_API_KEY", apiKey)
 	}
 
 	modelType := "gpt-5.3-mini"
