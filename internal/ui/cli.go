@@ -134,7 +134,6 @@ func DefaultStyles() *Styles {
 
 		// ── Header ──────────────────────────────────────────────────
 		TitleBar: lipgloss.NewStyle().
-			Background(t.Surface).
 			BorderBottom(true).
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(t.BorderDim).
@@ -163,7 +162,6 @@ func DefaultStyles() *Styles {
 
 		// ── Tabs ────────────────────────────────────────────────────
 		TabBar: lipgloss.NewStyle().
-			Background(lipgloss.Color("#10121A")).
 			BorderBottom(true).
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(t.BorderDim),
@@ -186,7 +184,6 @@ func DefaultStyles() *Styles {
 			MarginBottom(1),
 
 		UserBubble: lipgloss.NewStyle().
-			Background(lipgloss.Color("#1A2535")).
 			Foreground(t.Accent).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#1E3A5C")).
@@ -195,7 +192,6 @@ func DefaultStyles() *Styles {
 			MarginTop(1),
 
 		QueenBubble: lipgloss.NewStyle().
-			Background(t.Surface).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(t.BorderDim).
 			BorderLeft(true).
@@ -204,7 +200,6 @@ func DefaultStyles() *Styles {
 			MarginBottom(1),
 
 		ErrorBubble: lipgloss.NewStyle().
-			Background(lipgloss.Color("#1E1010")).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("#502020")).
 			BorderLeft(true).
@@ -225,7 +220,6 @@ func DefaultStyles() *Styles {
 
 		// ── Swarm Plan ───────────────────────────────────────────────
 		PlanBox: lipgloss.NewStyle().
-			Background(t.Surface).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(t.BorderDim).
 			BorderLeft(true).
@@ -245,7 +239,6 @@ func DefaultStyles() *Styles {
 			Padding(0, 1),
 
 		AgentCard: lipgloss.NewStyle().
-			Background(t.BgDark).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(t.Border).
 			Padding(0, 1).
@@ -281,7 +274,6 @@ func DefaultStyles() *Styles {
 
 		// ── Approval ────────────────────────────────────────────────
 		ApprovalBox: lipgloss.NewStyle().
-			Background(lipgloss.Color("#14100A")).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("#2E1F0A")).
 			BorderLeft(true).
@@ -302,7 +294,6 @@ func DefaultStyles() *Styles {
 			Padding(0, 1),
 
 		ApprovalArgs: lipgloss.NewStyle().
-			Background(t.BgDeep).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(t.BorderDim).
 			Padding(0, 1).
@@ -337,7 +328,6 @@ func DefaultStyles() *Styles {
 
 		// ── Log ─────────────────────────────────────────────────────
 		LogBox: lipgloss.NewStyle().
-			Background(t.BgDeep).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(t.BorderDim).
 			Padding(0, 1).
@@ -366,14 +356,12 @@ func DefaultStyles() *Styles {
 
 		// ── Input ───────────────────────────────────────────────────
 		InputBar: lipgloss.NewStyle().
-			Background(lipgloss.Color("#10121A")).
 			BorderTop(true).
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(t.BorderDim).
 			Padding(0, 2),
 
 		InputBox: lipgloss.NewStyle().
-			Background(t.Surface).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(t.Border).
 			Padding(0, 1),
@@ -388,7 +376,6 @@ func DefaultStyles() *Styles {
 
 		// ── Nectar ──────────────────────────────────────────────────
 		NectarBar: lipgloss.NewStyle().
-			Background(lipgloss.Color("#10121A")).
 			BorderTop(true).
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(t.BorderDim).
