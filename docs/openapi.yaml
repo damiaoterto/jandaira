@@ -1,0 +1,629 @@
+openapi: 3.1.0
+info:
+  title: Jandaira API
+  description: |
+    REST API for Jandaira — an AI agent swarm orchestration system.
+
+    Most endpoints require the hive to be configured first via `POST /api/setup`.
+    Unconfigured requests return `426 Upgrade Required`.
+
+    Real-time progress (swarm status, tool calls, approvals) is streamed over WebSocket at `GET /ws`.
+  version: 1.0.0
+  contact:
+    name: Francisco Damião Terto
+
+servers:
+  - url: http://localhost:{port}
+    description: Local server
+    variables:
+      port:
+        default: "8080"
+
+tags:
+  - name: Setup
+    description: Initial hive configuration (run once)
+  - name: Dispatch
+    description: Stateless swarm execution
+  - name: Sessions
+    description: Persistent execution sessions with agent tracking
+  - name: Catalog
+    description: Tools and agents catalog
+  - name: WebSocket
+    description: Real-time event stream
+
+paths:
+  /api/setup:
+    post:
+      tags: [Setup]
+      summary: Configure the hive
+      description: |
+        Initializes the hive on first run. Sets the default swarm name, LLM model,
+        token budget, and optionally stores the OpenAI API key in the local vault.
+
+        Once configured this endpoint returns `403 Forbidden`.
+        Does **not** require prior configuration (exempt from setup middleware).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+            examples:
+              minimal:
+                summary: Minimal setup
+                value:
+                  api_key: sk-...
+              full:
+                summary: Full setup
+                value:
+                  api_key: sk-...
+                  model: gpt-4o
+                  swarm_name: my-swarm
+                  max_nectar: 40000
+                  max_agents: 5
+                  supervised: true
+                  isolated: false
+      responses:
+        '200':
+          description: Hive configured successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: "Configuração salva com sucesso! O ecossistema está pronto e as operárias acordaram."
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Hive already configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/dispatch:
+    post:
+      tags: [Dispatch]
+      summary: Dispatch a stateless swarm mission
+      description: |
+        Assembles a dynamic agent pipeline for the given goal and runs the
+        workflow asynchronously (timeout: 10 min). The HTTP response returns
+        immediately with `202 Accepted`; all progress events are pushed to
+        connected WebSocket clients.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DispatchRequest'
+            example:
+              goal: "Summarize the latest news about AI and write a 5-paragraph report"
+              group_id: "my-swarm"
+      responses:
+        '202':
+          description: Mission accepted and dispatched asynchronously
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: "Mission dispatched to the swarm. Follow progress via WebSocket."
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '426':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/tools:
+    get:
+      tags: [Catalog]
+      summary: List registered tools
+      description: Returns all tools currently registered in the Queen with their name, description, and parameter schema.
+      responses:
+        '200':
+          description: Tool list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tools:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tool'
+        '426':
+          $ref: '#/components/responses/NotConfigured'
+
+  /api/agents:
+    get:
+      tags: [Catalog]
+      summary: List registered agents
+      description: Returns all agents registered in the Queen. Currently returns an empty array (reserved for future use).
+      responses:
+        '200':
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      type: object
+        '426':
+          $ref: '#/components/responses/NotConfigured'
+
+  /api/sessions:
+    get:
+      tags: [Sessions]
+      summary: List all sessions
+      description: Returns all sessions ordered by creation date (newest first). Agent details are omitted — use `GET /api/sessions/{id}` for the full graph.
+      responses:
+        '200':
+          description: Session list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Session'
+                  total:
+                    type: integer
+                    example: 3
+        '426':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [Sessions]
+      summary: Create a session
+      description: |
+        Creates a new session with `active` status. After creation, dispatch the
+        swarm via `POST /api/sessions/{id}/dispatch`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+            example:
+              name: "Weekly report"
+              goal: "Generate the weekly performance report for Q2"
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  session:
+                    $ref: '#/components/schemas/Session'
+              example:
+                message: "Sessão criada. Use POST /api/sessions/:id/dispatch para iniciar o enxame."
+                session:
+                  id: "550e8400-e29b-41d4-a716-446655440000"
+                  name: "Weekly report"
+                  goal: "Generate the weekly performance report for Q2"
+                  status: "active"
+                  created_at: "2026-04-11T10:00:00Z"
+                  updated_at: "2026-04-11T10:00:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '426':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/sessions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionID'
+
+    get:
+      tags: [Sessions]
+      summary: Get a session
+      description: Returns the full session object including all associated agents.
+      responses:
+        '200':
+          description: Session with agents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionWithAgents'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '426':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [Sessions]
+      summary: Delete a session
+      description: Permanently removes the session and all its agents (cascade delete).
+      responses:
+        '200':
+          description: Session deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: "Sessão e agentes removidos com sucesso."
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '426':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/sessions/{id}/dispatch:
+    post:
+      tags: [Sessions]
+      summary: Dispatch swarm for a session
+      description: |
+        Assembles the agent pipeline for the session, persists each specialist as an
+        `Agent` record, and runs the workflow asynchronously (timeout: 10 min).
+
+        Returns `409 Conflict` if the session is already in `completed` or `failed` status.
+
+        The `goal` in the request body overrides the session's original goal for this run.
+        All progress events are pushed to connected WebSocket clients.
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goal:
+                  type: string
+                  description: Overrides the session goal for this dispatch. Falls back to the session's stored goal if omitted.
+                  example: "Focus only on the revenue section of the report"
+      responses:
+        '202':
+          description: Mission dispatched asynchronously
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  session_id:
+                    type: string
+                    format: uuid
+                  agents:
+                    type: integer
+                    description: Number of specialists assembled
+              example:
+                message: "Missão despachada. Acompanhe o progresso via WebSocket."
+                session_id: "550e8400-e29b-41d4-a716-446655440000"
+                agents: 3
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Session already finished
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Sessão já finalizada com status 'completed'. Crie uma nova sessão."
+        '426':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/sessions/{id}/agents:
+    get:
+      tags: [Sessions]
+      summary: List session agents
+      description: Returns all agents belonging to the session.
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '200':
+          description: Agent list for the session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Agent'
+                  total:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '426':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /ws:
+    get:
+      tags: [WebSocket]
+      summary: WebSocket event stream
+      description: |
+        Upgrades the HTTP connection to WebSocket. Once connected, the server
+        broadcasts all swarm events to every connected client.
+
+        **Server → Client message types:**
+
+        | `type`             | Description |
+        |--------------------|-------------|
+        | `status`           | General progress message |
+        | `agent_change`     | A new agent became active (`agent` field set) |
+        | `tool_start`       | An agent started a tool call (`agent`, `tool`, `args` fields set) |
+        | `approval_request` | Tool call requires human approval (`id`, `tool`, `args` fields set) |
+        | `result`           | Workflow completed successfully (`message` contains the final output) |
+        | `error`            | Workflow failed (`message` contains the error) |
+
+        **Client → Server message types:**
+
+        | `type`    | Description |
+        |-----------|-------------|
+        | `approve` | Approve or reject a pending tool call. Set `id` to the approval request ID and `approved` to `true`/`false`. |
+      responses:
+        '101':
+          description: Switching Protocols — WebSocket connection established
+        '400':
+          description: WebSocket upgrade failed
+
+components:
+  schemas:
+    SetupRequest:
+      type: object
+      description: Hive configuration payload
+      properties:
+        api_key:
+          type: string
+          description: OpenAI API key. Stored securely in the local vault.
+          example: "sk-..."
+        language:
+          type: string
+          description: Preferred response language (e.g. "pt-BR", "en-US")
+          example: "en-US"
+        model:
+          type: string
+          description: LLM model identifier. Defaults to `gpt-4o-mini`.
+          example: "gpt-4o"
+          default: "gpt-4o-mini"
+        swarm_name:
+          type: string
+          description: Identifier for the default swarm group. Defaults to `enxame-alfa`.
+          example: "my-swarm"
+          default: "enxame-alfa"
+        max_nectar:
+          type: integer
+          description: Maximum token budget per workflow. Defaults to `20000`.
+          example: 40000
+          default: 20000
+        max_agents:
+          type: integer
+          description: Maximum number of concurrent agents.
+          example: 5
+        supervised:
+          type: boolean
+          description: When `true`, tool calls require human approval via WebSocket before execution.
+          default: false
+        isolated:
+          type: boolean
+          description: When `true`, agents run in isolation mode without shared context.
+          default: false
+
+    DispatchRequest:
+      type: object
+      required: [goal]
+      properties:
+        goal:
+          type: string
+          description: The mission objective for the swarm.
+          example: "Research the top 5 AI frameworks and summarize their pros and cons"
+        group_id:
+          type: string
+          description: Swarm group to dispatch to. Defaults to the configured `swarm_name`.
+          example: "my-swarm"
+
+    CreateSessionRequest:
+      type: object
+      required: [goal]
+      properties:
+        name:
+          type: string
+          description: Optional human-readable label for the session.
+          example: "Q2 Report"
+        goal:
+          type: string
+          description: The mission objective for this session.
+          example: "Generate the weekly performance report for Q2"
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          example: "Q2 Report"
+        goal:
+          type: string
+          example: "Generate the weekly performance report for Q2"
+        status:
+          type: string
+          enum: [active, completed, failed]
+          example: "active"
+        result:
+          type: string
+          description: Final output of the workflow. Populated after completion.
+          example: "The Q2 report has been generated..."
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-04-11T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2026-04-11T10:05:00Z"
+
+    SessionWithAgents:
+      allOf:
+        - $ref: '#/components/schemas/Session'
+        - type: object
+          properties:
+            agents:
+              type: array
+              items:
+                $ref: '#/components/schemas/Agent'
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        session_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Agent display name (e.g. the specialist role label)
+          example: "ResearchSpecialist"
+        role:
+          type: string
+          description: Agent functional role
+          example: "specialist"
+        status:
+          type: string
+          enum: [idle, working, done, failed]
+          example: "working"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Tool:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "web_search"
+        description:
+          type: string
+          example: "Search the web for up-to-date information"
+        parameters:
+          type: object
+          description: JSON Schema describing the tool's input parameters
+          additionalProperties: true
+
+    WsMessage:
+      type: object
+      description: Message exchanged over the WebSocket connection
+      properties:
+        type:
+          type: string
+          enum: [status, approval_request, approve, result, error, agent_change, tool_start]
+          example: "status"
+        id:
+          type: string
+          description: Unique ID of an approval request
+          example: "req-1712836800000000000"
+        message:
+          type: string
+          example: "🚀 Queen received the goal and is starting the swarm..."
+        tool:
+          type: string
+          example: "web_search"
+        args:
+          type: string
+          description: JSON-encoded tool arguments
+          example: '{"query":"latest AI news"}'
+        agent:
+          type: string
+          example: "ResearchSpecialist"
+        approved:
+          type: boolean
+          description: Used by the client in `approve` messages to grant or deny a tool call
+          example: true
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+
+  parameters:
+    SessionID:
+      name: id
+      in: path
+      required: true
+      description: Session UUID
+      schema:
+        type: string
+        format: uuid
+      example: "550e8400-e29b-41d4-a716-446655440000"
+
+  responses:
+    BadRequest:
+      description: Invalid or missing request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Field 'goal' is required."
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Sessão não encontrada."
+
+    NotConfigured:
+      description: Hive not yet configured — call `POST /api/setup` first
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "A colmeia ainda não foi configurada. Execute POST em /api/setup primeiro."
+
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Erro interno do servidor."
