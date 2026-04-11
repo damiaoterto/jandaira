@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/damiaoterto/jandaira/internal/model"
 	"github.com/damiaoterto/jandaira/internal/service"
 	"github.com/damiaoterto/jandaira/internal/swarm"
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,7 @@ import (
 // Outbound types (server → frontend):
 //   - "status"           – generic progress message from the queen or a handler
 //   - "log"              – raw log line emitted by the queen during a workflow
+//   - "agent_created"    – the queen assembled a new specialist agent (AgentData is set)
 //   - "agent_change"     – a new specialist agent has taken over (Agent field is set)
 //   - "tool_start"       – an agent is about to execute a tool (Agent, Tool, Args are set)
 //   - "approval_request" – the queen needs human approval before running a tool (ID, Tool, Args are set)
@@ -26,13 +28,14 @@ import (
 // Inbound types (frontend → server):
 //   - "approve" – the user approved or rejected a pending request (ID and Approved are set)
 type WsMessage struct {
-	Type     string `json:"type"`
-	ID       string `json:"id,omitempty"`       // approval request ID
-	Message  string `json:"message,omitempty"`
-	Tool     string `json:"tool,omitempty"`
-	Args     string `json:"args,omitempty"`
-	Agent    string `json:"agent,omitempty"`
-	Approved bool   `json:"approved,omitempty"` // inbound: true = approved, false = denied
+	Type      string       `json:"type"`
+	ID        string       `json:"id,omitempty"`        // approval request ID
+	Message   string       `json:"message,omitempty"`
+	Tool      string       `json:"tool,omitempty"`
+	Args      string       `json:"args,omitempty"`
+	Agent     string       `json:"agent,omitempty"`
+	AgentData *model.Agent `json:"agent_data,omitempty"` // agent_created: full agent record
+	Approved  bool         `json:"approved,omitempty"`  // inbound: true = approved, false = denied
 }
 
 var upgrader = websocket.Upgrader{

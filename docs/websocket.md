@@ -28,14 +28,25 @@ ws.addEventListener("message", (event) => {
 Every message — both inbound and outbound — follows the same `WsMessage` shape:
 
 ```ts
+interface Agent {
+  id: number;
+  session_id: string;
+  name: string;
+  role: string;
+  status: "idle" | "working" | "done" | "failed";
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+}
+
 interface WsMessage {
-  type: string;       // event identifier (see tables below)
-  id?: string;        // approval request ID
-  message?: string;   // human-readable text
-  tool?: string;      // tool name
-  args?: string;      // JSON-encoded tool arguments
-  agent?: string;     // agent/specialist name
-  approved?: boolean; // inbound only: true = approved, false = denied
+  type: string;        // event identifier (see tables below)
+  id?: string;         // approval request ID
+  message?: string;    // human-readable text
+  tool?: string;       // tool name
+  args?: string;       // JSON-encoded tool arguments
+  agent?: string;      // agent/specialist name
+  agent_data?: Agent;  // agent_created: full agent record
+  approved?: boolean;  // inbound only: true = approved, false = denied
 }
 ```
 
@@ -78,6 +89,31 @@ Raw internal log line emitted by the queen during planning or workflow execution
 | `message` | yes            | Log line (may contain emoji prefixes for context) |
 
 > **Difference from `status`:** `status` events are emitted intentionally at key milestones (dispatch start, workflow result). `log` events are the queen's raw stdout, providing full internal visibility.
+
+---
+
+### `agent_created`
+
+Fired once for each specialist after it has been persisted to the database. Emitted during session dispatch, before the workflow begins.
+
+```json
+{
+  "type": "agent_created",
+  "agent_data": {
+    "id": 7,
+    "session_id": "d4e5f6a7-...",
+    "name": "ResearchSpecialist",
+    "role": "specialist",
+    "status": "idle",
+    "created_at": "2026-04-11T14:00:00Z",
+    "updated_at": "2026-04-11T14:00:00Z"
+  }
+}
+```
+
+| Field        | Always present | Description |
+|--------------|:--------------:|-------------|
+| `agent_data` | yes            | Full agent record as stored in the database |
 
 ---
 
@@ -203,9 +239,14 @@ Below is the expected order of events for a supervised 2-agent workflow:
 ```
 CLIENT connects to ws://localhost:8080/ws
 
-SERVER  →  { type: "status",           message: "🚀 Queen received the goal..." }
+# Swarm assembly — one agent_created per specialist
+SERVER  →  { type: "agent_created",    agent_data: { id: 1, name: "Researcher", status: "idle", ... } }
+SERVER  →  { type: "agent_created",    agent_data: { id: 2, name: "Writer",     status: "idle", ... } }
+SERVER  →  { type: "status",           message: "🚀 Session abc-123 started with 2 agent(s)..." }
 SERVER  →  { type: "log",              message: "🧠 The Queen is consulting the manuals..." }
 SERVER  →  { type: "log",              message: "👑 Swarm planned with 2 bees: Researcher -> Writer" }
+
+# Workflow execution
 SERVER  →  { type: "agent_change",     agent: "Researcher" }
 SERVER  →  { type: "log",              message: "👑 [Queen] Passing the baton to: Researcher" }
 SERVER  →  { type: "approval_request", id: "req-...", tool: "web_search", args: "{...}" }
@@ -252,6 +293,7 @@ connect();
 const handlers = {
   status:           (msg) => console.info("[STATUS]", msg.message),
   log:              (msg) => console.debug("[LOG]", msg.message),
+  agent_created:    (msg) => console.info("[AGENT CREATED]", msg.agent_data),
   agent_change:     (msg) => console.info("[AGENT]", msg.agent, "is now active"),
   tool_start:       (msg) => console.info("[TOOL]", msg.agent, "→", msg.tool, msg.args),
   approval_request: (msg) => promptUser(msg),   // show approval UI

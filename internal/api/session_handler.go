@@ -158,12 +158,15 @@ func (s *Server) handleSessionDispatch(c *gin.Context) {
 		return
 	}
 
-	// Persist each specialist as an Agent record.
+	// Persist each specialist as an Agent record and notify clients.
 	for _, spec := range specialists {
-		if _, err := s.sessionService.AddAgent(sessionID, spec.Name, "specialist"); err != nil {
+		agent, err := s.sessionService.AddAgent(sessionID, spec.Name, "specialist")
+		if err != nil {
 			// Non-fatal: log and continue.
 			s.Broadcast(WsMessage{Type: "status", Message: fmt.Sprintf("⚠️ Falha ao registrar agente '%s': %v", spec.Name, err)})
+			continue
 		}
+		s.Broadcast(WsMessage{Type: "agent_created", AgentData: agent})
 	}
 
 	// Wire AgentChangeFunc to track which agent is actively working.
