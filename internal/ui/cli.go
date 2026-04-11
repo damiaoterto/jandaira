@@ -15,6 +15,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/damiaoterto/jandaira/internal/i18n"
+	"github.com/damiaoterto/jandaira/internal/model"
+	"github.com/damiaoterto/jandaira/internal/service"
 	"github.com/damiaoterto/jandaira/internal/swarm"
 )
 
@@ -457,30 +459,32 @@ type LogEntry struct {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type CLIModel struct {
-	Queen           *swarm.Queen
-	SwarmName       string
-	TextInput       textinput.Model
-	Spinner         spinner.Model
-	viewport        viewport.Model
-	History         []HistoryMsg
-	Logs            []LogEntry
-	ActivePipeline  []swarm.Specialist
-	IsWorking       bool
-	StatusLine      string
-	WaitingApproval bool
-	ApprovalTool    string
-	ApprovalArgs    string
-	PlanSummary     string
-	NectarUsed      int
-	NectarMax       int
-	width           int
-	height          int
-	ready           bool
-	styles          *Styles
-	maxWorkers      int
+	Queen            *swarm.Queen
+	SwarmName        string
+	TextInput        textinput.Model
+	Spinner          spinner.Model
+	viewport         viewport.Model
+	History          []HistoryMsg
+	Logs             []LogEntry
+	ActivePipeline   []swarm.Specialist
+	IsWorking        bool
+	StatusLine       string
+	WaitingApproval  bool
+	ApprovalTool     string
+	ApprovalArgs     string
+	PlanSummary      string
+	NectarUsed       int
+	NectarMax        int
+	width            int
+	height           int
+	ready            bool
+	styles           *Styles
+	maxWorkers       int
+	sessionService   service.SessionService
+	currentSessionID string
 }
 
-func InitialModel(q *swarm.Queen, swarmName string, maxWorkers int) CLIModel {
+func InitialModel(q *swarm.Queen, swarmName string, maxWorkers int, sessionSvc service.SessionService) CLIModel {
 	styles := DefaultStyles()
 
 	ti := textinput.New()
@@ -496,18 +500,17 @@ func InitialModel(q *swarm.Queen, swarmName string, maxWorkers int) CLIModel {
 	s.Style = lipgloss.NewStyle().Foreground(DefaultTheme.Primary)
 
 	return CLIModel{
-		Queen:     q,
-		SwarmName: swarmName,
-		TextInput: ti,
-		Spinner:   s,
-		History: []HistoryMsg{
-			{Role: "system", Content: i18n.T("cli_greeting")},
-		},
-		Logs:       []LogEntry{},
-		IsWorking:  false,
-		styles:     styles,
-		maxWorkers: maxWorkers,
-		NectarMax:  50000,
+		Queen:          q,
+		SwarmName:      swarmName,
+		TextInput:      ti,
+		Spinner:        s,
+		History:        []HistoryMsg{{Role: "system", Content: i18n.T("cli_greeting")}},
+		Logs:           []LogEntry{},
+		IsWorking:      false,
+		styles:         styles,
+		maxWorkers:     maxWorkers,
+		NectarMax:      50000,
+		sessionService: sessionSvc,
 	}
 }
 
@@ -596,6 +599,23 @@ func (m CLIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ActivePipeline = msg.pipeline
 		m.addLog("PLAN", fmt.Sprintf("enxame montado com %d operária(s)", len(msg.pipeline)), "")
 
+		// Persist session + agents in the background (SQLite is fast locally).
+		if m.sessionService != nil {
+			session, err := m.sessionService.Create("", msg.goal)
+			if err == nil {
+				m.currentSessionID = session.ID
+				for _, spec := range msg.pipeline {
+					_, _ = m.sessionService.AddAgent(session.ID, spec.Name, "specialist")
+				}
+				m.addLog("INFO", fmt.Sprintf("sessão %s criada", session.ID[:8]), "")
+				// Update AgentChangeFunc to track active agent in the session.
+				sessionID := session.ID
+				m.Queen.AgentChangeFunc = func(agentName string) {
+					_ = m.sessionService.UpdateAgentStatusByName(sessionID, agentName, model.AgentStatusWorking)
+				}
+			}
+		}
+
 		var summary strings.Builder
 		summary.WriteString(fmt.Sprintf("🐝 Enxame planejado com %d operária(s):\n", len(msg.pipeline)))
 		for _, spec := range msg.pipeline {
@@ -616,10 +636,17 @@ func (m CLIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.History = append(m.History, HistoryMsg{Role: "error", Content: msg.err.Error()})
 			m.addLog("ERR", "missão falhou →", msg.err.Error())
+			if m.sessionService != nil && m.currentSessionID != "" {
+				_ = m.sessionService.FailSession(m.currentSessionID)
+			}
 		} else {
 			m.History = append(m.History, HistoryMsg{Role: "queen", Content: msg.content})
 			m.addLog("INFO", "missão concluída", "")
+			if m.sessionService != nil && m.currentSessionID != "" {
+				_ = m.sessionService.CompleteSession(m.currentSessionID, msg.content)
+			}
 		}
+		m.currentSessionID = ""
 		m.StatusLine = ""
 
 	case StatusMsg:

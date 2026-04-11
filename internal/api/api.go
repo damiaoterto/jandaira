@@ -33,9 +33,10 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	Queen         *swarm.Queen
-	Port          int
-	configService service.ConfigService
+	Queen          *swarm.Queen
+	Port           int
+	configService  service.ConfigService
+	sessionService service.SessionService
 
 	// WebSocket client management
 	clients   map[*websocket.Conn]bool
@@ -46,11 +47,12 @@ type Server struct {
 	pendingApprovalsMu sync.Mutex
 }
 
-func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService) *Server {
+func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService) *Server {
 	s := &Server{
 		Queen:            q,
 		Port:             port,
 		configService:    cfgService,
+		sessionService:   sessionSvc,
 		clients:          make(map[*websocket.Conn]bool),
 		pendingApprovals: make(map[string]bool),
 	}
@@ -108,6 +110,17 @@ func (s *Server) Start() error {
 		api.POST("/dispatch", s.handleDispatch)
 		api.GET("/tools", s.handleListTools)
 		api.GET("/agents", s.handleListAgents)
+
+		// Session routes
+		sessions := api.Group("/sessions")
+		{
+			sessions.GET("", s.handleListSessions)
+			sessions.POST("", s.handleCreateSession)
+			sessions.GET("/:id", s.handleGetSession)
+			sessions.DELETE("/:id", s.handleDeleteSession)
+			sessions.POST("/:id/dispatch", s.handleSessionDispatch)
+			sessions.GET("/:id/agents", s.handleListSessionAgents)
+		}
 	}
 
 	fmt.Printf("🌐 Jandaira server (Gin + WebSockets) listening on port %d...\n", s.Port)

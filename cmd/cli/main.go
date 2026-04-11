@@ -42,6 +42,10 @@ func main() {
 	cfgRepo := repository.NewConfigRepository(db)
 	cfgService := service.NewConfigService(cfgRepo)
 
+	sessionRepo := repository.NewSessionRepository(db)
+	agentRepo := repository.NewAgentRepository(db)
+	sessionService := service.NewSessionService(sessionRepo, agentRepo)
+
 	// ── Load config ───────────────────────────────────────────────────────────
 	cfg, err := cfgService.Load()
 
@@ -140,7 +144,7 @@ func main() {
 	}
 
 	if *serverMode {
-		srv := api.NewServer(newQuen, *port, cfgService)
+		srv := api.NewServer(newQuen, *port, cfgService, sessionService)
 		if err := srv.Start(); err != nil {
 			fmt.Printf(i18n.T("cli_api_init_error")+"\n", err)
 			os.Exit(1)
@@ -157,7 +161,7 @@ func main() {
 	}
 
 	p := tea.NewProgram(
-		ui.InitialModel(newQuen, swarmName, maxWorkers),
+		ui.InitialModel(newQuen, swarmName, maxWorkers, sessionService),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

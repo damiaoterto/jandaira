@@ -9,9 +9,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// Open creates (or opens) the SQLite database at dbPath, ensures the directory
-// exists, and runs AutoMigrate for all registered models.
-// Add new models to the AutoMigrate call as they are created.
+// Open creates (or opens) the SQLite database at dbPath, ensures the parent
+// directory exists, enables foreign-key enforcement, and runs AutoMigrate for
+// all registered models.
+//
+// To register a new model, add it to the AutoMigrate call below.
 func Open(dbPath string) (*gorm.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		return nil, err
@@ -22,7 +24,16 @@ func Open(dbPath string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	if err := db.AutoMigrate(&model.AppConfig{}); err != nil {
+	// Enable SQLite foreign-key constraints so ON DELETE CASCADE works.
+	if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
+		return nil, err
+	}
+
+	if err := db.AutoMigrate(
+		&model.AppConfig{},
+		&model.Session{},
+		&model.Agent{},
+	); err != nil {
 		return nil, err
 	}
 

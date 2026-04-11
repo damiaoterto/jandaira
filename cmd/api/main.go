@@ -38,6 +38,10 @@ func main() {
 	cfgRepo := repository.NewConfigRepository(db)
 	cfgService := service.NewConfigService(cfgRepo)
 
+	sessionRepo := repository.NewSessionRepository(db)
+	agentRepo := repository.NewAgentRepository(db)
+	sessionService := service.NewSessionService(sessionRepo, agentRepo)
+
 	// ── Load config (optional at startup — setup may happen via API) ──────────
 	cfg, err := cfgService.Load()
 	if err != nil && !errors.Is(err, service.ErrNotConfigured) {
@@ -115,7 +119,7 @@ func main() {
 	}
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
-	server := api.NewServer(queen, *port, cfgService)
+	server := api.NewServer(queen, *port, cfgService, sessionService)
 
 	queen.LogFunc = func(msg string) {
 		server.Broadcast(api.WsMessage{Type: "status", Message: msg})
