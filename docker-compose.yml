@@ -4,7 +4,7 @@ services:
     environment:
       - IS_PERSISTENT=TRUE
     volumes:
-      - chroma-data:/chroma/chroma/
+      - chroma-data:/data
     ports:
       - "8000:8000"
 
