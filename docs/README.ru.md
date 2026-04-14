@@ -262,6 +262,7 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 | `read_file` | Читает содержимое файла |
 | `write_file` | Создаёт или перезаписывает файл |
 | `execute_code` | Выполняет код в изолированной Wasm-песочнице |
+| `web_search` | Поиск в интернете через DuckDuckGo (прямые ответы, определения, аннотации) |
 | `search_memory` | Семантический поиск в векторной памяти улья (ChromaDB) |
 | `store_memory` | Сохраняет знания в векторную память |
 

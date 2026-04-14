@@ -260,6 +260,7 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 | `read_file` | 读取文件内容 |
 | `write_file` | 创建或覆盖文件 |
 | `execute_code` | 在隔离的 Wasm 沙箱中执行代码 |
+| `web_search` | 通过 DuckDuckGo 搜索网络（直接答案、定义、摘要） |
 | `search_memory` | 在蜂巢向量记忆（ChromaDB）中进行语义搜索 |
 | `store_memory` | 将知识保存到向量记忆 |
 

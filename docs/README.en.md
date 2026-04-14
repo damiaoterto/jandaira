@@ -260,6 +260,7 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 | `read_file` | Reads the content of a file |
 | `write_file` | Creates or overwrites a file |
 | `execute_code` | Executes code in an isolated Wasm sandbox |
+| `web_search` | Searches the web via DuckDuckGo (direct answers, definitions, summaries) |
 | `search_memory` | Semantic search in the hive's vector memory (ChromaDB) |
 | `store_memory` | Saves knowledge to vector memory |
 

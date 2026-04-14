@@ -3,6 +3,7 @@ module github.com/damiaoterto/jandaira
 go 1.26.1
 
 require (
+	github.com/JoshuaDoes/duckduckgolang v0.0.0-20180207042607-60cbd040f6f4
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v1.0.0

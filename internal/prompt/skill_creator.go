@@ -58,7 +58,7 @@ A Specialist can only call tools listed in its AllowedTools. Assign only what th
 |---|---|
 | read_file / write_file / list_directory | Local filesystem |
 | execute_code | Runs Go code in a **Wasm sandbox (wazero)** — zero host access, zero network |
-| fetch_webpage | Scrapes and cleans web content |
+| web_search | Searches the internet via DuckDuckGo Instant Answer API — returns direct answers, definitions, abstracts, and top results |
 | search_memory / store_memory | Reads from and writes to the native vector DB (cosine similarity) |
 
 For any skill that runs code: explicitly state in the SystemPrompt that execute_code runs inside a Wasm sandbox with no access to the host OS or network, and that all I/O must go through read_file / write_file.

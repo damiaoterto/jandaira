@@ -254,14 +254,15 @@ queen.RegisterSwarm("meu-enxame", swarm.Policy{
 
 ### Ferramentas disponíveis
 
-| Ferramenta       | Descrição                                      |
-| ---------------- | ---------------------------------------------- |
-| `list_directory` | Lista arquivos e pastas de um diretório        |
-| `read_file`      | Lê o conteúdo de um arquivo                    |
-| `write_file`     | Cria ou sobrescreve um arquivo                 |
-| `execute_code`   | Executa código em sandbox Wasm isolado         |
-| `search_memory`  | Busca semântica na memória vetorial (ChromaDB) |
-| `store_memory`   | Salva conhecimento na memória vetorial         |
+| Ferramenta       | Descrição                                                                 |
+| ---------------- | ------------------------------------------------------------------------- |
+| `list_directory` | Lista arquivos e pastas de um diretório                                   |
+| `read_file`      | Lê o conteúdo de um arquivo                                               |
+| `write_file`     | Cria ou sobrescreve um arquivo                                            |
+| `execute_code`   | Executa código em sandbox Wasm isolado                                    |
+| `web_search`     | Busca na internet via DuckDuckGo (respostas diretas, definições, resumos) |
+| `search_memory`  | Busca semântica na memória vetorial (ChromaDB)                            |
+| `store_memory`   | Salva conhecimento na memória vetorial                                    |
 
 ---
 

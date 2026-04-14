@@ -215,6 +215,7 @@ El servidor estará disponible en `http://localhost:8080`. Monitorea eventos en 
 | `read_file` | Lee el contenido de un archivo |
 | `write_file` | Crea o sobreescribe un archivo |
 | `execute_code` | Ejecuta código en sandbox Wasm aislado |
+| `web_search` | Busca en internet via DuckDuckGo (respuestas directas, definiciones, resúmenes) |
 | `search_memory` | Búsqueda semántica en la memoria vectorial (ChromaDB) |
 | `store_memory` | Guarda conocimiento en la memoria vectorial |
 
