@@ -61,9 +61,13 @@ func main() {
 	}
 
 	// ── Brain (vector DB) ─────────────────────────────────────────────────────
-	honeycomb, err := brain.NewLocalVectorDB("./.jandaira/memory.json")
+	chromaURL := os.Getenv("CHROMA_URL")
+	if chromaURL == "" {
+		chromaURL = "http://localhost:8000"
+	}
+	honeycomb, err := brain.NewChromaHoneycomb(ctx, chromaURL)
 	if err != nil {
-		fmt.Printf("Error initializing local vector database: %v\n", err)
+		fmt.Printf("Error initializing ChromaDB: %v\n", err)
 		os.Exit(1)
 	}
 	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)

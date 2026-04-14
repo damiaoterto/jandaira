@@ -10,8 +10,6 @@ A **multi-agent autonomous framework** written in Go, inspired by the collective
 
 > 🌐 **English** · [Português](../README.md) · [中文](README.zh.md) · [Русский](README.ru.md)
 
-> 📦 [**Download pre-built binaries**](https://github.com/damiaoterto/jandaira/releases) — Linux, Windows, macOS and Raspberry Pi
-
 ---
 
 ## 📖 Why "Jandaira"?
@@ -23,7 +21,7 @@ This is exactly the architectural model this project implements:
 - The **Queen (`Queen`)** does not execute tasks — she orchestrates, validates policies, and ensures security.
 - The **Specialists (`Specialists`)** are lightweight agents with restricted tools, executing in isolated silos.
 - **Nectar** is the metaphor for the token budget: each agent consumes nectar; when it runs out, the hive stops.
-- The **Honeycomb (`Honeycomb`)** is the shared vector memory — collective knowledge that persists between missions.
+- The **Honeycomb (`Honeycomb`)** is the shared vector memory — collective knowledge that persists between missions, stored in ChromaDB.
 - The **Beekeeper** is the human in the loop: they can approve or block any AI action before it is executed.
 
 ---
@@ -34,15 +32,15 @@ This is exactly the architectural model this project implements:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        CLI (Bubble Tea)                         │
+│                   API REST + WebSocket (:8080)                   │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │  👤 User types objective  →  👑 Queen receives the goal │   │
+│  │  👤 Client sends goal via POST /api/dispatch             │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ DispatchWorkflow()
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Queen (Orchestrator)                          │
+│                    Queen (Orchestrator)                           │
 │                                                                  │
 │  ┌──────────────┐   ┌─────────────┐   ┌──────────────────────┐  │
 │  │  GroupQueue  │   │   Policy    │   │   NectarUsage ($$)   │  │
@@ -70,13 +68,13 @@ This is exactly the architectural model this project implements:
            ▼
 ┌──────────────────────────────────────────────────────────┐
 │              👨‍🌾 Beekeeper (Human-in-the-Loop)            │
-│   RequiresApproval=true → UI pauses and shows request    │
-│   Y = authorize tool │ N = block and inform AI           │
+│   RequiresApproval=true → WS sends approval_request      │
+│   approved=true → authorize │ approved=false → block     │
 └──────────────────────────────────────────────────────────┘
            │
            ▼
 ┌──────────────────────────────────────────────────────────┐
-│                   🍯 Honeycomb (Vector DB)                │
+│                   🍯 Honeycomb (ChromaDB)                 │
 │   Workflow result is embedded and indexed                 │
 │   Long-term memory shared between missions               │
 └──────────────────────────────────────────────────────────┘
@@ -87,31 +85,39 @@ This is exactly the architectural model this project implements:
 ```
 jandaira/
 ├── cmd/
-│   └── cli/
-│       └── main.go          # Entrypoint: assembles the hive and starts the UI
+│   └── api/
+│       └── main.go          # Entrypoint: HTTP + WebSocket server
 │
 └── internal/
     ├── brain/               # AI contracts (Brain, Honeycomb)
     │   ├── open_ai.go       # OpenAI implementation (Chat + Embed)
-    │   └── local_vector.go  # Local Vector DB (JSON embeddings)
+    │   ├── memory.go        # Honeycomb interface + LocalVectorDB
+    │   └── chroma.go        # ChromaDB implementation (ChromaHoneycomb)
     │
     ├── queue/               # FIFO scheduler with limited concurrency
     │   └── group_queue.go   # GroupQueue: N workers per group
     │
     ├── security/            # Inter-agent payload encryption
-    │   └── crypto.go        # AES-GCM Seal/Open + key generation
+    │   ├── crypto.go        # AES-GCM Seal/Open + key generation
+    │   ├── vault.go         # Local secrets vault
+    │   └── sandbox.go       # Execution sandbox
     │
     ├── swarm/               # Core agent system
-    │   ├── queen.go         # Orchestrator: policies, HIL, pipeline
-    │   └── specialist.go    # Specialist definition
+    │   └── queen.go         # Orchestrator: policies, HIL, pipeline
     │
     ├── tool/                # Tools available to agents
     │   ├── list_directory.go
-    │   ├── search_memory.go
+    │   ├── search_memory.go # search_memory + store_memory
     │   └── wasm.go          # Execution sandbox via wazero
     │
-    └── ui/
-        └── cli.go           # Bubble Tea interface (TUI)
+    ├── api/                 # HTTP handlers and WebSocket
+    ├── config/              # Application configuration
+    ├── database/            # SQLite connection
+    ├── i18n/                # Internationalization
+    ├── model/               # Data models
+    ├── prompt/              # Prompt templates
+    ├── repository/          # Data access
+    └── service/             # Business logic
 ```
 
 ---
@@ -125,11 +131,10 @@ jandaira/
 | **Agent isolation** | Docker containers | Wasm via `wazero` (no Docker) |
 | **IPC communication** | JSON on disk / Redis | Typed shared memory |
 | **Inter-agent encryption** | ❌ Does not exist | ✅ AES-GCM between each pass |
-| **Human-in-the-Loop** | Optional / external | ✅ Native: Beekeeper mode |
+| **Human-in-the-Loop** | Optional / external | ✅ Native: Beekeeper mode via WebSocket |
 | **Token budget** | Manual | ✅ Automatic `NectarUsage` per swarm |
-| **Vector memory** | Pinecone / external | ✅ Embedded (local, no server) |
-| **Deploy** | Multiple services | ✅ Single static binary |
-| **TUI interface** | Nonexistent | ✅ Bubble Tea with Lipgloss styles |
+| **Vector memory** | Pinecone / external | ✅ ChromaDB via Docker |
+| **Interface** | Nonexistent | ✅ REST API + WebSocket |
 | **IPC latency** | High (disk/network I/O) | Minimal (memory) |
 
 ### Why does Go outperform Python here?
@@ -149,33 +154,32 @@ jandaira/
 # Go 1.22 or higher
 go version
 
-# Optional: Set your OpenAI key via OS environment
+# Docker (for ChromaDB)
+docker --version
+
+# OpenAI API key
 export OPENAI_API_KEY="sk-..."
-# NOTE: If omitted, the Interactive Wizard will securely 
-# prompt and store it in your Cloud Vault (`~/.config/jandaira/.secrets`).
+```
+
+### Starting ChromaDB
+
+```bash
+# Via Docker directly
+docker run -d --name chroma -p 8000:8000 chromadb/chroma:latest
+
+# Or using the project's docker-compose
+docker compose up -d
+```
+
+By default the server connects to `http://localhost:8000`. To use a different address:
+
+```bash
+export CHROMA_URL="http://my-chroma:8000"
 ```
 
 ### Installation
 
-#### Option 1 — Download pre-built binary *(recommended)*
-
-Visit the [**Releases**](https://github.com/damiaoterto/jandaira/releases) page and download the binary for your system:
-
-| System | File |
-|---|---|
-| Linux x86-64 | `jandaira-linux` |
-| Windows | `jandaira-windows.exe` / `jandaira-setup.exe` |
-| macOS | `jandaira-macos` |
-| Raspberry Pi 4/5 | `jandaira-linux-arm64` |
-| Raspberry Pi 2/3 | `jandaira-linux-armv7` |
-
-```bash
-# Linux/macOS: make it executable
-chmod +x jandaira-linux
-./jandaira-linux
-```
-
-#### Option 2 — Build from source
+#### Option 1 — Build from source
 
 ```bash
 git clone https://github.com/damiaoterto/jandaira.git
@@ -184,97 +188,68 @@ cd jandaira
 # Download dependencies
 go mod tidy
 
-# Build
-go build -o jandaira ./cmd/cli/
+# Build the API server
+go build -o jandaira-api ./cmd/api/
+```
+
+#### Option 2 — Run directly
+
+```bash
+go run ./cmd/api/main.go --port 8080
 ```
 
 ### Run the hive
 
 ```bash
-./jandaira
+./jandaira-api --port 8080
 ```
 
-You will see the Jandaira TUI panel:
-
-```
-╔══════════════════════════════════╗
-║   🍯  Jandaira Swarm OS  🍯       ║
-║   Swarm Intelligence · Powered by Go ║
-╚══════════════════════════════════╝
-
-✦ The Jandaira Hive has awakened. The workers await your orders.
-
-╭──────────────────────────────────────╮
-│ 🐝 Objective  Tell the Queen what... │
-╰──────────────────────────────────────╯
-  ↵ send   esc / ctrl+c quit
-```
+The server will be available at `http://localhost:8080`. Monitor real-time events via WebSocket at `ws://localhost:8080/ws`.
 
 ### Example: create and test a Go file
 
-1. Type your objective in the input field and press **Enter**:
+1. Send the goal via `POST /api/dispatch`:
 
-   ```
-   Create a Go file called sum.go that adds two numbers and prints the result
+   ```bash
+   curl -X POST http://localhost:8080/api/dispatch \
+     -H "Content-Type: application/json" \
+     -d '{"goal": "Create a Go file called sum.go that adds two numbers", "group_id": "enxame-alfa"}'
    ```
 
 2. The Queen distributes the task to the Specialist pipeline:
    - **Wasm Developer** → writes `sum.go` using `write_file`
    - **Quality Auditor** → executes the code with `execute_code` and generates a report
 
-3. If `RequiresApproval: true`, **Beekeeper mode** is activated at each tool use:
+3. Follow progress via WebSocket:
 
-   ```
-   ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-   ⠿  ⚠️  The AI wants to use the tool 'write_file'
-
-   ▸ filename:  sum.go
-   ▸ content:
-     package main
-
-     import "fmt"
-
-     func main() {
-         fmt.Println(1 + 2)
-     }
-
-   👨‍🌾 Do you authorize? (Y = yes / N = no)
-   ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+   ```json
+   { "type": "agent_change", "agent": "Wasm Developer" }
+   { "type": "tool_start",   "agent": "Wasm Developer", "tool": "write_file", "args": "{...}" }
+   { "type": "result",       "message": "# Final Report\n..." }
    ```
 
-   - Press **Y** to authorize — the Queen continues
-   - Press **N** to block — the AI is informed and recalculates its approach
+4. If `RequiresApproval: true`, **Beekeeper mode** is activated. The server sends an `approval_request` via WebSocket and waits for a response:
 
-4. At the end, the report is displayed in the history and saved to local vector memory (`.jandaira/data`).
+   ```json
+   // Server sends:
+   { "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
+
+   // Client responds:
+   { "type": "approve", "id": "req-1712345678901", "approved": true }
+   ```
+
+5. At the end, the result is saved to ChromaDB vector memory for future use.
 
 ### Configure your own swarm
 
-Edit `cmd/cli/main.go` to define your own Specialists and policy:
+Edit `cmd/api/main.go` to define your swarm policy:
 
 ```go
-// Swarm policy
 queen.RegisterSwarm("my-swarm", swarm.Policy{
     MaxNectar:        50000,  // Token budget
     Isolate:          true,   // Isolated context per group
     RequiresApproval: true,   // Beekeeper mode (HIL)
 })
-
-// Specialists in pipeline
-researcher := swarm.Specialist{
-    Name: "Researcher",
-    SystemPrompt: `You are a researcher. Use search_memory to find
-                   relevant context and return a detailed summary.`,
-    AllowedTools: []string{"search_memory"},
-}
-
-writer := swarm.Specialist{
-    Name: "Writer",
-    SystemPrompt: `You are a technical writer. Based on the received summary,
-                   use write_file to create a Markdown report.`,
-    AllowedTools: []string{"write_file"},
-}
-
-workflow := []swarm.Specialist{researcher, writer}
 ```
 
 ### Available tools
@@ -285,7 +260,7 @@ workflow := []swarm.Specialist{researcher, writer}
 | `read_file` | Reads the content of a file |
 | `write_file` | Creates or overwrites a file |
 | `execute_code` | Executes code in an isolated Wasm sandbox |
-| `search_memory` | Semantic search in the hive's vector memory |
+| `search_memory` | Semantic search in the hive's vector memory (ChromaDB) |
 | `store_memory` | Saves knowledge to vector memory |
 
 ---
@@ -303,7 +278,7 @@ This simulates a secure IPC channel, where even if one agent is compromised, it 
 
 ---
 
-## 🌐 API Reference (Server Mode)
+## 🌐 API Reference
 
 Start the HTTP server with `./jandaira-api --port 8080`. The following routes are available:
 
@@ -354,7 +329,7 @@ Start the HTTP server with `./jandaira-api --port 8080`. The following routes ar
 
 ### WebSocket Events (`/ws`)
 
-All events are exchanged as JSON over the same WebSocket channel. The Beekeeper **no longer needs REST routes** — approvals are handled entirely via WebSocket.
+All events are exchanged as JSON over the same WebSocket channel. The Beekeeper **does not need REST routes** — approvals are handled entirely via WebSocket.
 
 #### Server → Frontend
 
@@ -368,7 +343,6 @@ All events are exchanged as JSON over the same WebSocket channel. The Beekeeper 
 | `error` | Failure or timeout | `message` |
 
 ```json
-// Example events received by the frontend:
 { "type": "status",           "message": "🚀 Queen received the goal and is starting the swarm..." }
 { "type": "agent_change",     "agent": "Wasm Developer" }
 { "type": "tool_start",       "agent": "Wasm Developer", "tool": "write_file", "args": "{...}" }
@@ -384,10 +358,7 @@ All events are exchanged as JSON over the same WebSocket channel. The Beekeeper 
 | `approve` | Beekeeper response to an `approval_request` | `id`, `approved` |
 
 ```json
-// Approve the action:
 { "type": "approve", "id": "req-1712345678901", "approved": true }
-
-// Deny the action:
 { "type": "approve", "id": "req-1712345678901", "approved": false }
 ```
 

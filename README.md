@@ -10,8 +10,6 @@ Um framework de **multiagentes autônomos** escrito em Go, inspirado na intelig�
 
 > 🌐 [English](docs/README.en.md) · **Português** · [中文](docs/README.zh.md) · [Русский](docs/README.ru.md)
 
-> 📦 [**Download de binários pré-compilados**](https://github.com/damiaoterto/jandaira/releases) — Linux, Windows, macOS e Raspberry Pi
-
 ---
 
 ## 📖 Por que "Jandaira"?
@@ -23,7 +21,7 @@ Esse é exatamente o modelo de arquitetura que o projeto implementa:
 - A **Rainha (`Queen`)** não executa tarefas — ela orquestra, valida políticas e garante segurança.
 - As **Especialistas (`Specialists`)** são agentes leves com ferramentas restritas, executando em silos isolados.
 - O **Néctar** é a metáfora para o orçamento de tokens: cada agente consome néctar; quando acaba, a colmeia para.
-- A **Colmeia (`Honeycomb`)** é a memória vetorial compartilhada — o conhecimento coletivo que persiste entre missões.
+- A **Colmeia (`Honeycomb`)** é a memória vetorial compartilhada — o conhecimento coletivo que persiste entre missões, armazenado no ChromaDB.
 - O **Apicultor** é o humano no loop: pode aprovar ou bloquear qualquer ação da IA antes de ela ser executada.
 
 ---
@@ -34,15 +32,15 @@ Esse é exatamente o modelo de arquitetura que o projeto implementa:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        CLI (Bubble Tea)                         │
+│                   API REST + WebSocket (:8080)                   │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │  👤 Usuário digita objetivo  →  👑 Queen recebe a meta  │   │
+│  │  👤 Cliente envia objetivo via POST /api/dispatch        │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ DispatchWorkflow()
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Queen (Orquestradora)                         │
+│                    Queen (Orquestradora)                          │
 │                                                                  │
 │  ┌──────────────┐   ┌─────────────┐   ┌──────────────────────┐  │
 │  │  GroupQueue  │   │   Policy    │   │   NectarUsage ($$)   │  │
@@ -70,13 +68,13 @@ Esse é exatamente o modelo de arquitetura que o projeto implementa:
            ▼
 ┌──────────────────────────────────────────────────────────┐
 │              👨‍🌾 Apicultor (Human-in-the-Loop)            │
-│   RequiresApproval=true → UI pausa e exibe o pedido      │
-│   S = autoriza a ferramenta │ N = bloqueia e informa IA  │
+│   RequiresApproval=true → WS envia approval_request      │
+│   approved=true → autoriza │ approved=false → bloqueia   │
 └──────────────────────────────────────────────────────────┘
            │
            ▼
 ┌──────────────────────────────────────────────────────────┐
-│                   🍯 Honeycomb (Vector DB)                │
+│                   🍯 Honeycomb (ChromaDB)                 │
 │   Resultado do workflow é embeddado e indexado            │
 │   Memória de longo prazo compartilhada entre missões     │
 └──────────────────────────────────────────────────────────┘
@@ -87,31 +85,39 @@ Esse é exatamente o modelo de arquitetura que o projeto implementa:
 ```
 jandaira/
 ├── cmd/
-│   └── cli/
-│       └── main.go          # Entrypoint: monta a colmeia e inicia a UI
+│   └── api/
+│       └── main.go          # Entrypoint: servidor HTTP + WebSocket
 │
 └── internal/
     ├── brain/               # Contratos de IA (Brain, Honeycomb)
     │   ├── open_ai.go       # Implementação OpenAI (Chat + Embed)
-    │   └── local_vector.go  # Vector DB local (JSON embeddings)
+    │   ├── memory.go        # Interface Honeycomb + LocalVectorDB
+    │   └── chroma.go        # Implementação ChromaDB (ChromaHoneycomb)
     │
     ├── queue/               # Escalonador FIFO com concorrência limitada
     │   └── group_queue.go   # GroupQueue: N workers por grupo
     │
     ├── security/            # Criptografia de payloads inter-agentes
-    │   └── crypto.go        # AES-GCM Seal/Open + geração de chave
+    │   ├── crypto.go        # AES-GCM Seal/Open + geração de chave
+    │   ├── vault.go         # Vault local para segredos
+    │   └── sandbox.go       # Sandbox de execução
     │
     ├── swarm/               # Núcleo do sistema de agentes
-    │   ├── queen.go         # Orquestradora: políticas, HIL, pipeline
-    │   └── specialist.go    # Definição de Especialista
+    │   └── queen.go         # Orquestradora: políticas, HIL, pipeline
     │
     ├── tool/                # Ferramentas disponíveis aos agentes
     │   ├── list_directory.go
-    │   ├── search_memory.go
+    │   ├── search_memory.go # search_memory + store_memory
     │   └── wasm.go          # Sandbox de execução via wazero
     │
-    └── ui/
-        └── cli.go           # Interface Bubble Tea (TUI)
+    ├── api/                 # Handlers HTTP e WebSocket
+    ├── config/              # Configuração da aplicação
+    ├── database/            # Conexão SQLite
+    ├── i18n/                # Internacionalização
+    ├── model/               # Modelos de dados
+    ├── prompt/              # Templates de prompt
+    ├── repository/          # Acesso a dados
+    └── service/             # Lógica de negócio
 ```
 
 ---
@@ -125,11 +131,10 @@ jandaira/
 | **Isolamento de agentes**     | Docker containers     | Wasm via `wazero` (sem Docker)         |
 | **Comunicação IPC**           | JSON em disco / Redis | Memória compartilhada, tipada          |
 | **Criptografia inter-agente** | ❌ Não existe         | ✅ AES-GCM entre cada bastão           |
-| **Human-in-the-Loop**         | Opcional / externo    | ✅ Nativo: modo Apicultor              |
+| **Human-in-the-Loop**         | Opcional / externo    | ✅ Nativo: modo Apicultor via WebSocket |
 | **Budget de tokens**          | Manual                | ✅ `NectarUsage` automático por enxame |
-| **Memória vetorial**          | Pinecone / externo    | ✅ Embedded (local, sem servidor)      |
-| **Deploy**                    | Múltiplos serviços    | ✅ Binário único estático              |
-| **Interface TUI**             | Inexistente           | ✅ Bubble Tea com styles Lipgloss      |
+| **Memória vetorial**          | Pinecone / externo    | ✅ ChromaDB via Docker                 |
+| **Interface**                 | Inexistente           | ✅ API REST + WebSocket                |
 | **Latência de IPC**           | Alta (I/O disco/rede) | Mínima (memória)                       |
 
 ### Por que Go supera Python aqui?
@@ -149,33 +154,32 @@ jandaira/
 # Go 1.22 ou superior
 go version
 
-# Opcional: Defina via variável de ambiente (Pipeline/CI)
+# Docker (para o ChromaDB)
+docker --version
+
+# Chave OpenAI
 export OPENAI_API_KEY="sk-..."
-# NOTA: O Assistente Interativo (Wizard) também pode solicitar essa chave
-# no primeiro acesso e guardá-la de forma oculta no Cloud Vault nativo (`~/.config/jandaira/.secrets`).
+```
+
+### Subindo o ChromaDB
+
+```bash
+# Via Docker diretamente
+docker run -d --name chroma -p 8000:8000 chromadb/chroma:latest
+
+# Ou usando o docker-compose do projeto
+docker compose up -d
+```
+
+Por padrão o servidor conecta em `http://localhost:8000`. Para usar outro endereço:
+
+```bash
+export CHROMA_URL="http://meu-chroma:8000"
 ```
 
 ### Instalação
 
-#### Opção 1 — Baixar binário pré-compilado _(recomendado)_
-
-Acesse a página de [**Releases**](https://github.com/damiaoterto/jandaira/releases) e baixe o binário para o seu sistema:
-
-| Sistema          | Arquivo                                       |
-| ---------------- | --------------------------------------------- |
-| Linux x86-64     | `jandaira-linux`                              |
-| Windows          | `jandaira-windows.exe` / `jandaira-setup.exe` |
-| macOS            | `jandaira-macos`                              |
-| Raspberry Pi 4/5 | `jandaira-linux-arm64`                        |
-| Raspberry Pi 2/3 | `jandaira-linux-armv7`                        |
-
-```bash
-# Linux/macOS: tornar executável
-chmod +x jandaira-linux
-./jandaira-linux
-```
-
-#### Opção 2 — Compilar a partir do código-fonte
+#### Opção 1 — Compilar a partir do código-fonte
 
 ```bash
 git clone https://github.com/damiaoterto/jandaira.git
@@ -184,97 +188,68 @@ cd jandaira
 # Baixar dependências
 go mod tidy
 
-# Compilar
-go build -o jandaira ./cmd/cli/
+# Compilar o servidor API
+go build -o jandaira-api ./cmd/api/
+```
+
+#### Opção 2 — Executar diretamente
+
+```bash
+go run ./cmd/api/main.go --port 8080
 ```
 
 ### Executar a colmeia
 
 ```bash
-./jandaira
+./jandaira-api --port 8080
 ```
 
-Você verá o painel TUI da Jandaira:
-
-```
-╔══════════════════════════════════╗
-║   🍯  Jandaira Swarm OS  🍯       ║
-║   Swarm Intelligence · Powered by Go ║
-╚══════════════════════════════════╝
-
-✦ A Colmeia Jandaira despertou. As operárias aguardam as suas ordens.
-
-╭──────────────────────────────────────╮
-│ 🐝 Objetivo  Diga à Rainha o que...  │
-╰──────────────────────────────────────╯
-  ↵ enviar   esc / ctrl+c sair
-```
+O servidor estará disponível em `http://localhost:8080`. Monitore os eventos em tempo real via WebSocket em `ws://localhost:8080/ws`.
 
 ### Exemplo: criar e testar um arquivo Go
 
-1. Digite seu objetivo no campo de entrada e pressione **Enter**:
+1. Envie o objetivo via `POST /api/dispatch`:
 
-   ```
-   Crie um arquivo Go chamado soma.go que some dois números e imprima o resultado
+   ```bash
+   curl -X POST http://localhost:8080/api/dispatch \
+     -H "Content-Type: application/json" \
+     -d '{"goal": "Crie um arquivo Go chamado soma.go que some dois números", "group_id": "enxame-alfa"}'
    ```
 
 2. A Rainha distribui a tarefa para a pipeline de Especialistas:
    - **Desenvolvedora Wasm** → escreve `soma.go` usando `write_file`
    - **Auditora de Qualidade** → executa o código com `execute_code` e gera um relatório
 
-3. Se `RequiresApproval: true`, o **modo Apicultor** é ativado a cada uso de ferramenta:
+3. Acompanhe o progresso pelo WebSocket:
 
-   ```
-   ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-   ⠿  ⚠️  A IA quer usar a ferramenta  'write_file'
-
-   ▸ filename:  soma.go
-   ▸ content:
-     package main
-
-     import "fmt"
-
-     func main() {
-         fmt.Println(1 + 2)
-     }
-
-   👨‍🌾 Você autoriza? (S = sim / N = não)
-   ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+   ```json
+   { "type": "agent_change", "agent": "Desenvolvedora Wasm" }
+   { "type": "tool_start",   "agent": "Desenvolvedora Wasm", "tool": "write_file", "args": "{...}" }
+   { "type": "result",       "message": "# Relatório Final\n..." }
    ```
 
-   - Pressione **S** (ou Y) para autorizar — a Rainha continua
-   - Pressione **N** para bloquear — a IA é informada e recalcula sua abordagem
+4. Se `RequiresApproval: true`, o **modo Apicultor** é ativado. O servidor envia um `approval_request` via WebSocket e aguarda a resposta:
 
-4. Ao final, o relatório é exibido no histórico e salvo na memória vetorial local (`.jandaira/data`).
+   ```json
+   // Servidor envia:
+   { "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
+
+   // Cliente responde:
+   { "type": "approve", "id": "req-1712345678901", "approved": true }
+   ```
+
+5. Ao final, o resultado é salvo na memória vetorial do ChromaDB para uso futuro.
 
 ### Configurar seu próprio enxame
 
-Edite `cmd/cli/main.go` para definir suas próprias Especialistas e política:
+Edite `cmd/api/main.go` para definir a política do enxame:
 
 ```go
-// Política do enxame
 queen.RegisterSwarm("meu-enxame", swarm.Policy{
     MaxNectar:        50000,  // Budget de tokens
     Isolate:          true,   // Contexto isolado por grupo
     RequiresApproval: true,   // Modo Apicultor (HIL)
 })
-
-// Especialistas em pipeline
-pesquisadora := swarm.Specialist{
-    Name: "Pesquisadora",
-    SystemPrompt: `Você é uma pesquisadora. Use search_memory para buscar
-                   contexto relevante e retorne um resumo detalhado.`,
-    AllowedTools: []string{"search_memory"},
-}
-
-redatora := swarm.Specialist{
-    Name: "Redatora",
-    SystemPrompt: `Você é uma redatora técnica. Com base no resumo recebido,
-                   use write_file para criar um relatório em Markdown.`,
-    AllowedTools: []string{"write_file"},
-}
-
-workflow := []swarm.Specialist{pesquisadora, redatora}
 ```
 
 ### Ferramentas disponíveis
@@ -285,7 +260,7 @@ workflow := []swarm.Specialist{pesquisadora, redatora}
 | `read_file`      | Lê o conteúdo de um arquivo                    |
 | `write_file`     | Cria ou sobrescreve um arquivo                 |
 | `execute_code`   | Executa código em sandbox Wasm isolado         |
-| `search_memory`  | Busca semântica na memória vetorial da colmeia |
+| `search_memory`  | Busca semântica na memória vetorial (ChromaDB) |
 | `store_memory`   | Salva conhecimento na memória vetorial         |
 
 ---
@@ -303,7 +278,7 @@ Isso simula um canal IPC seguro, onde mesmo que um agente seja comprometido, ele
 
 ---
 
-## 🌐 API Reference (Modo Servidor)
+## 🌐 API Reference
 
 O servidor HTTP é iniciado com `./jandaira-api --port 8080` e expõe as seguintes rotas:
 
@@ -362,7 +337,7 @@ O servidor HTTP é iniciado com `./jandaira-api --port 8080` e expõe as seguint
 
 ### Eventos WebSocket (`/ws`)
 
-Todos os eventos trafegam como JSON pelo mesmo canal WebSocket. O Apicultor **não precisa mais de rotas REST** — a aprovação é feita inteiramente pelo WebSocket.
+Todos os eventos trafegam como JSON pelo mesmo canal WebSocket. O Apicultor **não precisa de rotas REST** — a aprovação é feita inteiramente pelo WebSocket.
 
 #### Servidor → Frontend
 
@@ -376,13 +351,12 @@ Todos os eventos trafegam como JSON pelo mesmo canal WebSocket. O Apicultor **n�
 | `error`            | Falha ou timeout                              | `message`               |
 
 ```json
-// Exemplos de eventos recebidos pelo frontend:
-{ "type": "status",     "message": "🚀 Queen received the goal and is starting the swarm..." }
-{ "type": "agent_change", "agent": "Desenvolvedora Wasm" }
-{ "type": "tool_start", "agent": "Desenvolvedora Wasm", "tool": "write_file", "args": "{...}" }
+{ "type": "status",           "message": "🚀 Queen received the goal and is starting the swarm..." }
+{ "type": "agent_change",     "agent": "Desenvolvedora Wasm" }
+{ "type": "tool_start",       "agent": "Desenvolvedora Wasm", "tool": "write_file", "args": "{...}" }
 { "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
-{ "type": "result",     "message": "# Relatório Final\n..." }
-{ "type": "error",      "message": "Mission timeout reached." }
+{ "type": "result",           "message": "# Relatório Final\n..." }
+{ "type": "error",            "message": "Mission timeout reached." }
 ```
 
 #### Frontend → Servidor
@@ -392,10 +366,7 @@ Todos os eventos trafegam como JSON pelo mesmo canal WebSocket. O Apicultor **n�
 | `approve` | Resposta do Apicultor a um `approval_request` | `id`, `approved`    |
 
 ```json
-// Aprovar a ação:
 { "type": "approve", "id": "req-1712345678901", "approved": true }
-
-// Negar a ação:
 { "type": "approve", "id": "req-1712345678901", "approved": false }
 ```
 

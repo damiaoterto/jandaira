@@ -5,7 +5,7 @@ info:
     REST API for Jandaira — an AI agent swarm orchestration system.
 
     Most endpoints require the hive to be configured first via `POST /api/setup`.
-    Unconfigured requests return `426 Upgrade Required`.
+    Unconfigured requests return `428 Precondition Required`.
 
     Real-time progress (swarm status, tool calls, approvals) is streamed over WebSocket at `GET /ws`.
   version: 1.0.0
@@ -112,7 +112,7 @@ paths:
                 message: "Mission dispatched to the swarm. Follow progress via WebSocket."
         '400':
           $ref: '#/components/responses/BadRequest'
-        '426':
+        '428':
           $ref: '#/components/responses/NotConfigured'
         '500':
           $ref: '#/components/responses/InternalError'
@@ -134,7 +134,7 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Tool'
-        '426':
+        '428':
           $ref: '#/components/responses/NotConfigured'
 
   /api/agents:
@@ -154,7 +154,7 @@ paths:
                     type: array
                     items:
                       type: object
-        '426':
+        '428':
           $ref: '#/components/responses/NotConfigured'
 
   /api/sessions:
@@ -177,7 +177,7 @@ paths:
                   total:
                     type: integer
                     example: 3
-        '426':
+        '428':
           $ref: '#/components/responses/NotConfigured'
         '500':
           $ref: '#/components/responses/InternalError'
@@ -220,7 +220,7 @@ paths:
                   updated_at: "2026-04-11T10:00:00Z"
         '400':
           $ref: '#/components/responses/BadRequest'
-        '426':
+        '428':
           $ref: '#/components/responses/NotConfigured'
         '500':
           $ref: '#/components/responses/InternalError'
@@ -242,7 +242,7 @@ paths:
                 $ref: '#/components/schemas/SessionWithAgents'
         '404':
           $ref: '#/components/responses/NotFound'
-        '426':
+        '428':
           $ref: '#/components/responses/NotConfigured'
         '500':
           $ref: '#/components/responses/InternalError'
@@ -262,7 +262,7 @@ paths:
                 message: "Sessão e agentes removidos com sucesso."
         '404':
           $ref: '#/components/responses/NotFound'
-        '426':
+        '428':
           $ref: '#/components/responses/NotConfigured'
         '500':
           $ref: '#/components/responses/InternalError'
@@ -324,7 +324,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 error: "Sessão já finalizada com status 'completed'. Crie uma nova sessão."
-        '426':
+        '428':
           $ref: '#/components/responses/NotConfigured'
         '500':
           $ref: '#/components/responses/InternalError'
@@ -352,7 +352,7 @@ paths:
                     type: integer
         '404':
           $ref: '#/components/responses/NotFound'
-        '426':
+        '428':
           $ref: '#/components/responses/NotConfigured'
         '500':
           $ref: '#/components/responses/InternalError'
@@ -371,6 +371,7 @@ paths:
         |--------------------|-------------|
         | `status`           | General progress message from the queen or a handler |
         | `log`              | Raw internal log line emitted by the queen during planning or execution |
+        | `agent_created`    | A specialist was persisted to the database (`agent_data` field set) — emitted during session dispatch before the workflow starts |
         | `agent_change`     | A new specialist agent became active (`agent` field set) |
         | `tool_start`       | An agent is about to execute a tool (`agent`, `tool`, `args` fields set) |
         | `approval_request` | Tool call requires human approval (`id`, `tool`, `args` fields set) |
@@ -545,7 +546,7 @@ components:
       properties:
         type:
           type: string
-          enum: [status, log, approval_request, approve, result, error, agent_change, tool_start]
+          enum: [status, log, agent_created, agent_change, tool_start, approval_request, approve, result, error]
           example: "status"
         id:
           type: string
@@ -564,6 +565,9 @@ components:
         agent:
           type: string
           example: "ResearchSpecialist"
+        agent_data:
+          $ref: '#/components/schemas/Agent'
+          description: Full agent record — only present on `agent_created` events
         approved:
           type: boolean
           description: Used by the client in `approve` messages to grant or deny a tool call
@@ -612,7 +616,7 @@ components:
             error: "Sessão não encontrada."
 
     NotConfigured:
-      description: Hive not yet configured — call `POST /api/setup` first
+      description: Hive not yet configured — call `POST /api/setup` first (428 Precondition Required)
       content:
         application/json:
           schema:
