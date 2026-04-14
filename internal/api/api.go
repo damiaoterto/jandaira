@@ -117,9 +117,26 @@ func (s *Server) Broadcast(msg WsMessage) {
 	}
 }
 
+func (s *Server) corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		c.Next()
+	}
+}
+
 func (s *Server) Start() error {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+
+	r.Use(s.corsMiddleware())
 
 	r.GET("/ws", s.handleWebSocket)
 
