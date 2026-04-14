@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 func (s *Server) handleListSessions(c *gin.Context) {
 	sessions, err := s.sessionService.ListSessions()
 	if err != nil {
+		log.Printf("ERROR handleListSessions: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao listar sessões."})
 		return
 	}
@@ -41,6 +43,7 @@ func (s *Server) handleCreateSession(c *gin.Context) {
 
 	session, err := s.sessionService.Create(req.Name, req.Goal)
 	if err != nil {
+		log.Printf("ERROR handleCreateSession: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao criar sessão."})
 		return
 	}
@@ -61,6 +64,7 @@ func (s *Server) handleGetSession(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Sessão não encontrada."})
 			return
 		}
+		log.Printf("ERROR handleGetSession id=%s: %v", c.Param("id"), err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar sessão."})
 		return
 	}
@@ -76,6 +80,7 @@ func (s *Server) handleDeleteSession(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Sessão não encontrada."})
 			return
 		}
+		log.Printf("ERROR handleDeleteSession id=%s: %v", c.Param("id"), err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao deletar sessão."})
 		return
 	}
@@ -92,6 +97,7 @@ func (s *Server) handleListSessionAgents(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Sessão não encontrada."})
 			return
 		}
+		log.Printf("ERROR handleListSessionAgents id=%s: %v", c.Param("id"), err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao listar agentes."})
 		return
 	}
@@ -113,6 +119,7 @@ func (s *Server) handleSessionDispatch(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Sessão não encontrada."})
 			return
 		}
+		log.Printf("ERROR handleSessionDispatch GetSession id=%s: %v", sessionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar sessão."})
 		return
 	}

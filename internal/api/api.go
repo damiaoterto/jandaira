@@ -29,13 +29,13 @@ import (
 //   - "approve" – the user approved or rejected a pending request (ID and Approved are set)
 type WsMessage struct {
 	Type      string       `json:"type"`
-	ID        string       `json:"id,omitempty"`        // approval request ID
+	ID        string       `json:"id,omitempty"` // approval request ID
 	Message   string       `json:"message,omitempty"`
 	Tool      string       `json:"tool,omitempty"`
 	Args      string       `json:"args,omitempty"`
 	Agent     string       `json:"agent,omitempty"`
 	AgentData *model.Agent `json:"agent_data,omitempty"` // agent_created: full agent record
-	Approved  bool         `json:"approved,omitempty"`  // inbound: true = approved, false = denied
+	Approved  bool         `json:"approved,omitempty"`   // inbound: true = approved, false = denied
 }
 
 var upgrader = websocket.Upgrader{
@@ -133,7 +133,7 @@ func (s *Server) corsMiddleware() gin.HandlerFunc {
 }
 
 func (s *Server) Start() error {
-	gin.SetMode(gin.ReleaseMode)
+	gin.SetMode(gin.DebugMode)
 	r := gin.Default()
 
 	r.Use(s.corsMiddleware())
@@ -189,4 +189,3 @@ func (s *Server) setupMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
-

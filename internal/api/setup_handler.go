@@ -2,7 +2,9 @@ package api
 
 import (
 	"net/http"
+	"os"
 
+	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/model"
 	"github.com/damiaoterto/jandaira/internal/security"
 	"github.com/damiaoterto/jandaira/internal/swarm"
@@ -55,6 +57,10 @@ func (s *Server) handleSetup(c *gin.Context) {
 		repoDir := security.GetDefaultVaultDir()
 		if v, err := security.InitVault(repoDir); err == nil {
 			_ = v.SaveSecret("OPENAI_API_KEY", rawReq.APIKey)
+		}
+		os.Setenv("OPENAI_API_KEY", rawReq.APIKey)
+		if b, ok := s.Queen.Brain.(*brain.OpenAIBrain); ok {
+			b.APIKey = rawReq.APIKey
 		}
 	}
 

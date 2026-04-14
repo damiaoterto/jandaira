@@ -124,6 +124,10 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message, tools []Tool
 		return "", nil, ConsumptionReport{}, err
 	}
 
+	if len(result.Choices) == 0 {
+		return "", nil, ConsumptionReport{}, fmt.Errorf("OpenAI returned an empty choices list (possible API key or quota issue)")
+	}
+
 	report := ConsumptionReport{
 		PromptTokens: result.Usage.PromptTokens, TotalTokens: result.Usage.TotalTokens,
 	}
