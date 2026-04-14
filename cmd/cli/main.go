@@ -31,14 +31,12 @@ func main() {
 
 	ctx := context.Background()
 
-	// ── Database ──────────────────────────────────────────────────────────────
 	db, err := database.Open(config.GetDefaultPath())
 	if err != nil {
 		fmt.Printf("Erro ao abrir banco de dados: %v\n", err)
 		os.Exit(1)
 	}
 
-	// ── Repository + Service ──────────────────────────────────────────────────
 	cfgRepo := repository.NewConfigRepository(db)
 	cfgService := service.NewConfigService(cfgRepo)
 
@@ -46,7 +44,6 @@ func main() {
 	agentRepo := repository.NewAgentRepository(db)
 	sessionService := service.NewSessionService(sessionRepo, agentRepo)
 
-	// ── Load config ───────────────────────────────────────────────────────────
 	cfg, err := cfgService.Load()
 
 	if err == nil && cfg.Language != "" {
@@ -76,7 +73,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ── Brain (vector DB) ─────────────────────────────────────────────────────
 	honeycomb, err := brain.NewLocalVectorDB("./.jandaira/memory.json")
 	if err != nil {
 		fmt.Printf("Erro ao inicializar o banco vetorial: %v\n", err)
@@ -89,7 +85,6 @@ func main() {
 	}
 	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)
 
-	// ── API key ───────────────────────────────────────────────────────────────
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
 		repoDir := security.GetDefaultVaultDir()
@@ -118,7 +113,6 @@ func main() {
 		modelType = cfg.Model
 	}
 
-	// ── Swarm ─────────────────────────────────────────────────────────────────
 	openAIBrain := brain.NewOpenAIBrain(apiKey, modelType)
 	groupQueue := queue.NewGroupQueue(3)
 	newQuen := swarm.NewQueen(groupQueue, openAIBrain, honeycomb)
@@ -152,7 +146,6 @@ func main() {
 		return
 	}
 
-	// ── CLI UI ────────────────────────────────────────────────────────────────
 	fmt.Print("\033[H\033[2J")
 
 	maxWorkers := 3
