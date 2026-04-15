@@ -361,7 +361,7 @@ paths:
 
   /api/sessions/{id}/documents:
     post:
-      tags: [Documents]
+      tags: [Sessions]
       summary: Upload a document to session memory
       description: |
         Receives a document file, extracts its plain text, splits it into overlapping
@@ -409,6 +409,7 @@ paths:
               example:
                 message: "Documento indexado com sucesso."
                 filename: "relatorio-q2.pdf"
+                workspace_path: "workspace/sessions/550e8400-e29b-41d4-a716-446655440000/relatorio-q2.txt"
                 chunks: 12
                 collection: "enxame-alfa"
                 session_id: "550e8400-e29b-41d4-a716-446655440000"
@@ -668,6 +669,13 @@ components:
           type: string
           description: Original filename of the uploaded document
           example: "relatorio-q2.pdf"
+        workspace_path:
+          type: string
+          description: |
+            Relative path (from the server's CWD) where the extracted plain text was
+            saved on disk. Agents can read it directly with the `read_file` tool.
+            Format: `workspace/sessions/{sessionID}/{stem}.txt`
+          example: "workspace/sessions/550e8400-e29b-41d4-a716-446655440000/relatorio-q2.txt"
         chunks:
           type: integer
           description: Number of text chunks successfully embedded and stored in ChromaDB

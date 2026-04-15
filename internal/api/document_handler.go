@@ -6,6 +6,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/damiaoterto/jandaira/internal/brain"
@@ -14,8 +17,13 @@ import (
 
 const maxUploadSize = 32 << 20 // 32 MB
 
+// workspaceDir is the root directory where extracted document texts are written
+// so that the read_file tool can access them by name.
+const workspaceDir = "workspace/sessions"
+
 // handleUploadDocument receives a document file, extracts its text, embeds each
-// chunk, and stores the vectors in ChromaDB under the session's collection.
+// chunk, stores the vectors in ChromaDB, and writes the extracted text to disk
+// so that the read_file tool can access it during mission execution.
 //
 //	POST /api/sessions/:id/documents
 //	Content-Type: multipart/form-data
@@ -86,7 +94,14 @@ func (s *Server) handleUploadDocument(c *gin.Context) {
 		return
 	}
 
-	// Embed and persist each chunk.
+	// Write extracted text to disk so read_file can access it during mission.
+	workspacePath, diskErr := saveTextToDisk(sessionID, fileHeader.Filename, text)
+	if diskErr != nil {
+		log.Printf("WARN handleUploadDocument saveTextToDisk: %v", diskErr)
+		// Non-fatal: ChromaDB indexing still proceeds.
+	}
+
+	// Embed and persist each chunk in ChromaDB.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -106,12 +121,13 @@ func (s *Server) handleUploadDocument(c *gin.Context) {
 
 		docID := fmt.Sprintf("doc-%s-%s-%d-%d", sessionID, sanitizeID(fileHeader.Filename), i, time.Now().UnixNano())
 		metadata := map[string]string{
-			"content":    chunk,
-			"type":       "document_chunk",
-			"filename":   fileHeader.Filename,
-			"session_id": sessionID,
-			"chunk":      fmt.Sprintf("%d", i),
-			"total":      fmt.Sprintf("%d", len(chunks)),
+			"content":        chunk,
+			"type":           "document_chunk",
+			"filename":       fileHeader.Filename,
+			"session_id":     sessionID,
+			"workspace_path": workspacePath,
+			"chunk":          fmt.Sprintf("%d", i),
+			"total":          fmt.Sprintf("%d", len(chunks)),
 		}
 
 		if err := s.Queen.Honeycomb.Store(ctx, collection, docID, vector, metadata); err != nil {
@@ -128,19 +144,43 @@ func (s *Server) handleUploadDocument(c *gin.Context) {
 
 	s.Broadcast(WsMessage{
 		Type:    "status",
-		Message: fmt.Sprintf("📄 Documento '%s' indexado na memória: %d/%d chunks salvos.", fileHeader.Filename, stored, len(chunks)),
+		Message: fmt.Sprintf("📄 Documento '%s' indexado na memória: %d/%d chunks salvos. Caminho no workspace: %s", fileHeader.Filename, stored, len(chunks), workspacePath),
 	})
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":    "Documento indexado com sucesso.",
-		"filename":   fileHeader.Filename,
-		"chunks":     stored,
-		"collection": collection,
-		"session_id": sessionID,
+		"message":        "Documento indexado com sucesso.",
+		"filename":       fileHeader.Filename,
+		"workspace_path": workspacePath,
+		"chunks":         stored,
+		"collection":     collection,
+		"session_id":     sessionID,
 	})
 }
 
-// sanitizeID replaces characters not safe in a ChromaDB document ID.
+// saveTextToDisk writes the extracted text to workspace/sessions/{sessionID}/{stem}.txt
+// so that the read_file tool can read it by path during mission execution.
+// Returns the relative path that agents should use with read_file.
+func saveTextToDisk(sessionID, originalFilename, text string) (string, error) {
+	dir := filepath.Join(workspaceDir, sessionID)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("falha ao criar diretório workspace: %w", err)
+	}
+
+	// Strip the original extension and always save as .txt so agents
+	// know exactly what extension to use with read_file.
+	base := strings.TrimSuffix(originalFilename, filepath.Ext(originalFilename))
+	filename := sanitizeID(base) + ".txt"
+	fullPath := filepath.Join(dir, filename)
+
+	if err := os.WriteFile(fullPath, []byte(text), 0644); err != nil {
+		return "", fmt.Errorf("falha ao escrever arquivo no workspace: %w", err)
+	}
+
+	// Return the relative path that read_file resolves from CWD.
+	return filepath.Join(workspaceDir, sessionID, filename), nil
+}
+
+// sanitizeID replaces characters not safe in a ChromaDB document ID or filename.
 func sanitizeID(s string) string {
 	out := make([]byte, 0, len(s))
 	for i := 0; i < len(s); i++ {
