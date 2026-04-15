@@ -157,6 +157,7 @@ func (s *Server) Start() error {
 			sessions.DELETE("/:id", s.handleDeleteSession)
 			sessions.POST("/:id/dispatch", s.handleSessionDispatch)
 			sessions.GET("/:id/agents", s.handleListSessionAgents)
+			sessions.POST("/:id/documents", s.handleUploadDocument)
 		}
 	}
 

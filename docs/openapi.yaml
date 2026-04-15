@@ -26,6 +26,8 @@ tags:
     description: Stateless swarm execution
   - name: Sessions
     description: Persistent execution sessions with agent tracking
+  - name: Documents
+    description: Upload and index documents into the session's vector memory (ChromaDB)
   - name: Catalog
     description: Tools and agents catalog
   - name: WebSocket
@@ -357,6 +359,89 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/sessions/{id}/documents:
+    post:
+      tags: [Documents]
+      summary: Upload a document to session memory
+      description: |
+        Receives a document file, extracts its plain text, splits it into overlapping
+        chunks (≈ 1 500 chars each), embeds every chunk via the configured LLM, and
+        stores the resulting vectors in ChromaDB so that session agents can retrieve
+        them with the `search_memory` tool.
+
+        **Supported formats:** `.pdf`, `.docx`, `.txt`, `.csv`, `.xlsx`
+        **Not supported:** `.doc` (OLE2 binary — convert to `.docx` first)
+        **Size limit:** 32 MB per file
+
+        The target ChromaDB collection defaults to the configured `swarm_name`
+        (e.g. `enxame-alfa`). Override it with the `?collection` query parameter.
+
+        On success a `status` WebSocket event is broadcast to all connected clients:
+        `📄 Documento 'X' indexado na memória: N/M chunks salvos.`
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+        - name: collection
+          in: query
+          required: false
+          description: ChromaDB collection name. Defaults to the configured swarm name.
+          schema:
+            type: string
+            example: "enxame-alfa"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Document file to index (.pdf, .docx, .txt, .csv, .xlsx)
+      responses:
+        '201':
+          description: Document indexed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentUploadResponse'
+              example:
+                message: "Documento indexado com sucesso."
+                filename: "relatorio-q2.pdf"
+                chunks: 12
+                collection: "enxame-alfa"
+                session_id: "550e8400-e29b-41d4-a716-446655440000"
+        '400':
+          description: Missing `file` field or malformed multipart body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Campo 'file' obrigatório (multipart/form-data)."
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Unsupported file format or no extractable text found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unsupported:
+                  summary: Unsupported extension
+                  value:
+                    error: "extensão não suportada: \".doc\" (aceitos: .pdf, .docx, .txt, .csv, .xlsx)"
+                empty:
+                  summary: No text found
+                  value:
+                    error: "Nenhum texto encontrado no documento."
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /ws:
     get:
       tags: [WebSocket]
@@ -572,6 +657,30 @@ components:
           type: boolean
           description: Used by the client in `approve` messages to grant or deny a tool call
           example: true
+
+    DocumentUploadResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Documento indexado com sucesso."
+        filename:
+          type: string
+          description: Original filename of the uploaded document
+          example: "relatorio-q2.pdf"
+        chunks:
+          type: integer
+          description: Number of text chunks successfully embedded and stored in ChromaDB
+          example: 12
+        collection:
+          type: string
+          description: ChromaDB collection where the vectors were stored
+          example: "enxame-alfa"
+        session_id:
+          type: string
+          format: uuid
+          description: ID of the session this document is associated with
+          example: "550e8400-e29b-41d4-a716-446655440000"
 
     MessageResponse:
       type: object
