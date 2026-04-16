@@ -90,7 +90,8 @@ type ReadFileTool struct{}
 func (t *ReadFileTool) Name() string { return "read_file" }
 
 func (t *ReadFileTool) Description() string {
-	return "Lê o conteúdo de um ficheiro de texto, resolvendo-o a partir do CWD."
+	return "Lê o conteúdo completo de um arquivo de texto a partir do caminho relativo fornecido. " +
+		"IMPORTANTE: sempre use o caminho relativo completo (ex: 'workspace/sessions/abc123/arquivo.txt'), nunca apenas o nome do arquivo."
 }
 
 func (t *ReadFileTool) Parameters() map[string]any {
@@ -99,7 +100,7 @@ func (t *ReadFileTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"filename": map[string]any{
 				"type":        "string",
-				"description": "O nome do ficheiro a ler",
+				"description": "Caminho relativo completo do arquivo a partir do diretório raiz do projeto (ex: 'workspace/sessions/abc123/relatorio.txt'). Nunca use apenas o nome do arquivo sem o caminho.",
 			},
 		},
 		"required": []string{"filename"},
@@ -119,10 +120,11 @@ func (t *ReadFileTool) Execute(ctx context.Context, argsJSON string) (string, er
 		return "", err
 	}
 
-	// Lendo o arquivo real do disco!
+	fmt.Printf("DEBUG read_file: tentando ler '%s' (abs: %s)\n", args.Filename, absPath)
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
-		return "", fmt.Errorf("erro ao ler arquivo '%s': %w", absPath, err)
+		return "", fmt.Errorf("erro ao ler arquivo '%s': %w. Verifique se o caminho completo foi fornecido (ex: workspace/sessions/<id>/arquivo.txt)", absPath, err)
 	}
 
 	return string(content), nil

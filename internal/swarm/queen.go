@@ -35,6 +35,7 @@ type Queen struct {
 	Queue             *queue.GroupQueue
 	Brain             brain.Brain
 	Honeycomb         brain.Honeycomb
+	Graph             brain.KnowledgeGraph // optional; nil = disabled
 	mu                sync.RWMutex
 	Policies          map[string]Policy
 	NectarUsage       map[string]int
@@ -89,7 +90,10 @@ func (q *Queen) AssembleSwarm(ctx context.Context, goal string, maxWorkers int) 
 	}
 	toolsListStr := strings.Join(availableToolsDesc, "\n")
 
+	graphCtx := q.graphContextForGoal(ctx, goal)
+
 	systemPrompt := fmt.Sprintf(`%s
+		%s
 		======================================================================
 		SWARM ARCHITECTURE INSTRUCTIONS (META-PLANNING)
 		======================================================================
@@ -115,7 +119,7 @@ func (q *Queen) AssembleSwarm(ctx context.Context, goal string, maxWorkers int) 
 			}
 		]
 		}
-  `, prompt.SkillCreatorPrompt, toolsListStr, maxWorkers)
+  `, prompt.SkillCreatorPrompt, graphCtx, toolsListStr, maxWorkers)
 
 	messages := []brain.Message{
 		{Role: brain.RoleSystem, Content: systemPrompt},
@@ -213,6 +217,8 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 				}
 			}
 
+			q.registerWorkflowInGraph(ctx, goal, pipeline)
+
 			resultChan <- contextAccumulator
 			return nil
 		},
@@ -306,4 +312,94 @@ func (q *Queen) runSpecialist(ctx context.Context, spec Specialist, encryptedTas
 	}
 
 	return "", fmt.Errorf("reflection limit reached for specialist '%s'", spec.Name)
+}
+
+// registerWorkflowInGraph records specialists and their topic area in the
+// knowledge graph so the Queen can reference them in future swarm assemblies.
+func (q *Queen) registerWorkflowInGraph(ctx context.Context, goal string, specialists []Specialist) {
+	if q.Graph == nil {
+		return
+	}
+
+	label := goal
+	if len(label) > 80 {
+		label = label[:80]
+	}
+	topicID := "topic-" + slugify(label)
+
+	_ = q.Graph.AddNode(ctx, brain.Node{
+		ID:    topicID,
+		Type:  "topic",
+		Label: label,
+	})
+
+	for _, spec := range specialists {
+		agentID := "agent-" + slugify(spec.Name)
+		preview := spec.SystemPrompt
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		_ = q.Graph.AddNode(ctx, brain.Node{
+			ID:    agentID,
+			Type:  "agent",
+			Label: spec.Name,
+			Props: map[string]string{"system_prompt_preview": preview},
+		})
+		_ = q.Graph.AddEdge(ctx, brain.Edge{
+			From:   agentID,
+			To:     topicID,
+			Rel:    "expert_in",
+			Weight: 1.0,
+		})
+	}
+}
+
+// graphContextForGoal queries the knowledge graph for past specialists whose
+// topics overlap with the current goal and returns a prompt snippet the Queen
+// can use as reference when designing a new swarm.
+func (q *Queen) graphContextForGoal(ctx context.Context, goal string) string {
+	if q.Graph == nil {
+		return ""
+	}
+
+	expertSet := map[string]brain.Node{}
+	for _, word := range strings.Fields(goal) {
+		if len(word) < 5 {
+			continue
+		}
+		experts, err := q.Graph.FindExperts(ctx, word)
+		if err != nil {
+			continue
+		}
+		for _, e := range experts {
+			expertSet[e.ID] = e
+		}
+	}
+
+	if len(expertSet) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("PAST SPECIALIST KNOWLEDGE (from knowledge graph — use as reference only):\n")
+	for _, node := range expertSet {
+		preview := node.Props["system_prompt_preview"]
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", node.Label, preview))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// slugify converts a string into a lowercase, hyphen-separated identifier
+// safe for use as a graph node ID.
+func slugify(s string) string {
+	var sb strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			sb.WriteRune(r)
+		} else {
+			sb.WriteRune('-')
+		}
+	}
+	return sb.String()
 }

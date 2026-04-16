@@ -145,6 +145,50 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message, tools []Tool
 	return msg.Content, internalToolCalls, report, nil
 }
 
-// GetProviderName e Embed mantêm-se iguais.
-func (b *OpenAIBrain) Embed(ctx context.Context, text string) ([]float32, error) { return nil, nil }
-func (b *OpenAIBrain) GetProviderName() string                                   { return "openai" }
+func (b *OpenAIBrain) Embed(ctx context.Context, text string) ([]float32, error) {
+	const embedURL = "https://api.openai.com/v1/embeddings"
+	const embedModel = "text-embedding-3-small"
+
+	payload := map[string]interface{}{
+		"model": embedModel,
+		"input": text,
+	}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("embed marshal: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", embedURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("embed new request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+b.APIKey)
+
+	resp, err := b.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("openai embeddings API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("embed decode response: %w", err)
+	}
+	if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
+		return nil, fmt.Errorf("openai embeddings API returned empty embedding")
+	}
+
+	return result.Data[0].Embedding, nil
+}
+
+func (b *OpenAIBrain) GetProviderName() string { return "openai" }

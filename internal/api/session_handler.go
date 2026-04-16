@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/damiaoterto/jandaira/internal/model"
@@ -75,14 +78,21 @@ func (s *Server) handleGetSession(c *gin.Context) {
 //
 //	DELETE /api/sessions/:id
 func (s *Server) handleDeleteSession(c *gin.Context) {
-	if err := s.sessionService.DeleteSession(c.Param("id")); err != nil {
+	id := c.Param("id")
+	if err := s.sessionService.DeleteSession(id); err != nil {
 		if errors.Is(err, service.ErrSessionNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Sessão não encontrada."})
 			return
 		}
-		log.Printf("ERROR handleDeleteSession id=%s: %v", c.Param("id"), err)
+		log.Printf("ERROR handleDeleteSession id=%s: %v", id, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao deletar sessão."})
 		return
+	}
+
+	// Remove workspace files created during document upload.
+	sessionWorkspace := filepath.Join(workspaceDir, id)
+	if err := os.RemoveAll(sessionWorkspace); err != nil {
+		log.Printf("WARN handleDeleteSession cleanup workspace id=%s: %v", id, err)
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Sessão e agentes removidos com sucesso."})
 }
@@ -155,12 +165,32 @@ func (s *Server) handleSessionDispatch(c *gin.Context) {
 		groupID = cfg.SwarmName
 	}
 
+	// Inject uploaded document paths into the goal so the Queen instructs
+	// agents to read the correct files from the workspace.
+	docDir := filepath.Join(workspaceDir, sessionID)
+	if entries, err := os.ReadDir(docDir); err == nil && len(entries) > 0 {
+		var paths []string
+		for _, e := range entries {
+			if !e.IsDir() {
+				paths = append(paths, filepath.Join(docDir, e.Name()))
+			}
+		}
+		if len(paths) > 0 {
+			goal = fmt.Sprintf(
+				"%s\n\nDocumentos enviados pelo usuário (use read_file com estes caminhos exatos):\n%s",
+				goal,
+				strings.Join(paths, "\n"),
+			)
+		}
+	}
+
 	// Assemble swarm synchronously so we can register agents before returning.
 	assembleCtx, assembleCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer assembleCancel()
 
 	specialists, err := s.Queen.AssembleSwarm(assembleCtx, goal, maxWorkers)
 	if err != nil {
+		log.Printf("ERROR handleSessionDispatch AssembleSwarm session=%s: %v", sessionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Falha ao planejar o enxame: %v", err)})
 		return
 	}

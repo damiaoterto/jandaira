@@ -21,7 +21,8 @@
 - **蜂王（`Queen`）** 不执行任务——她负责编排、验证策略和确保安全。
 - **专家智能体（`Specialists`）** 是轻量级智能体，工具受限，在隔离的沙箱中执行。
 - **花蜜（Nectar）** 是 Token 预算的隐喻：每个智能体消耗花蜜；花蜜耗尽，蜂巢停止运作。
-- **蜂巢（`Honeycomb`）** 是共享的向量记忆——在任务之间持久化的集体知识，存储于 ChromaDB。
+- **蜂巢（`Honeycomb`）** 是两层持久化记忆系统：`ShortTermMemory` 将近期上下文保存在 RAM 中并自动按 TTL 过期；ChromaDB 将整合后的长期知识作为向量嵌入归档。
+- **知识图谱（`KnowledgeGraph`）** 映射智能体、主题和工具之间的关系——蜂王在每次任务前查询它，以复用在类似目标上已成功过的专家配置文件。
 - **养蜂人（Beekeeper）** 是回路中的人类：可以在 AI 执行任何操作之前批准或阻止它。
 
 ---
@@ -89,10 +90,13 @@ jandaira/
 │       └── main.go          # 入口点：HTTP + WebSocket 服务器
 │
 └── internal/
-    ├── brain/               # AI 契约（Brain, Honeycomb）
-    │   ├── open_ai.go       # OpenAI 实现（Chat + Embed）
-    │   ├── memory.go        # Honeycomb 接口 + LocalVectorDB
-    │   └── chroma.go        # ChromaDB 实现（ChromaHoneycomb）
+    ├── brain/               # 蜂群神经系统
+    │   ├── open_ai.go       # Brain：通过 OpenAI 实现 Chat + Embed
+    │   ├── memory.go        # Honeycomb：向量接口 + LocalVectorDB
+    │   ├── chroma.go        # ChromaHoneycomb：ChromaDB 后端
+    │   ├── graph.go         # KnowledgeGraph：智能体 ↔ 主题图谱（GraphRAG）
+    │   ├── short_term.go    # ShortTermMemory：TTL 缓冲区 + 自动压缩
+    │   └── document.go      # 文本提取 + 分块（PDF、DOCX、XLSX…）
     │
     ├── queue/               # 具有有限并发的 FIFO 调度器
     │   └── group_queue.go   # GroupQueue：每组 N 个 worker
@@ -122,6 +126,66 @@ jandaira/
 
 ---
 
+## 🧠 记忆架构
+
+`internal/brain/` 远不止是一个向量存储：它实现了一个集成知识图谱的两层记忆层次结构，随每次任务不断积累。
+
+### 短期记忆 — `ShortTermMemory`
+
+`brain/short_term.go` 是一个带有每条消息 TTL 的消息缓冲区，解决了长时间运行的蜂群中 LLM 上下文溢出的问题：
+
+- 每条消息在插入时获得一个到期时间戳
+- 过期条目在下次访问时被静默丢弃
+- **自动压缩**：当缓冲区达到 `maxEntries` 时，LLM 将积累的历史摘要为一个密集段落 → 摘要被嵌入并作为 `short_term_archive` 归档到 ChromaDB → RAM 缓冲区被清空
+- 会话结束时应调用 `Flush(ctx)` 以确保完整归档；若 LLM 失败，原始记录将作为备用方案归档
+
+```
+ 新消息插入
+     │
+     ▼
+┌──────────────────────────────────┐
+│      ShortTermMemory (RAM)       │
+│  [msg₁ · 过期: +30分钟]         │
+│  [msg₂ · 过期: +30分钟]         │
+│  ...                             │
+│  [msgN · 过期: +30分钟]         │ ← 溢出：compact() 触发
+└──────────────────────────────────┘
+     │
+     ▼
+  LLM 摘要历史记录
+     │
+     ▼
+┌──────────────────────────────────┐
+│  ChromaDB（长期记忆）            │
+│  type: "short_term_archive"      │
+└──────────────────────────────────┘
+```
+
+### 知识图谱 — `KnowledgeGraph`（GraphRAG）
+
+`brain/graph.go` 实现了一个 JSON 持久化知识图谱（`~/.config/jandaira/knowledge_graph.json`），在每次完成的工作流后自动积累专业知识。
+
+**数据模型**
+
+| 元素 | 类型 | 示例 |
+|---|---|---|
+| 专家配置文件 | `agent` 节点 | `"数据分析师"` |
+| 任务领域 | `topic` 节点 | `"财务报告分析"` |
+| 专业知识链接 | `expert_in` 边 | `agent → topic` |
+
+**蜂王的自动学习周期**
+
+每次工作流完成后，`registerWorkflowInGraph` 执行：
+1. 使用任务目标（最多 80 个字符）创建/更新 `topic` 节点
+2. 为管道中的每个专家创建/更新 `agent` 节点
+3. 创建 `expert_in` 边，将每个智能体链接到主题
+
+组装下一个蜂群之前，`graphContextForGoal` 使用新目标的关键词查询图谱，并将 **"PAST SPECIALIST KNOWLEDGE"** 块注入蜂王的元规划提示词中。
+
+结果：蜂王随时间设计出越来越好的蜂群，仅通过图谱查询即可实现，无需额外的 LLM 调用。
+
+---
+
 ## ⚡ 与 NanoClaw 的差异对比
 
 | 特性 | NanoClaw (Python) | Jandaira (Go) |
@@ -134,6 +198,8 @@ jandaira/
 | **人在回路中** | 可选 / 外部 | ✅ 原生：养蜂人模式（通过 WebSocket） |
 | **Token 预算** | 手动 | ✅ 每个蜂群自动 `NectarUsage` |
 | **向量记忆** | Pinecone / 外部 | ✅ ChromaDB via Docker |
+| **知识图谱** | ❌ 不存在 | ✅ `KnowledgeGraph` — 原生 GraphRAG |
+| **短期记忆** | ❌ 不存在 | ✅ `ShortTermMemory` 含 TTL + LLM 压缩 |
 | **界面** | 不存在 | ✅ REST API + WebSocket |
 | **IPC 延迟** | 高（磁盘/网络 I/O） | 最小（内存） |
 

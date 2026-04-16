@@ -21,7 +21,8 @@ Este es exactamente el modelo de arquitectura que el proyecto implementa:
 - La **Reina (`Queen`)** no ejecuta tareas — ella orquesta, valida políticas y garantiza la seguridad.
 - Las **Especialistas (`Specialists`)** son agentes ligeros con herramientas restringidas, operando en silos aislados.
 - El **Néctar** es la metáfora para el presupuesto de tokens: cada agente consume néctar; cuando se acaba, la colmena se detiene.
-- El **Panal (`Honeycomb`)** es la memoria vectorial compartida — el conocimiento colectivo que persiste entre misiones, almacenado en ChromaDB.
+- El **Panal (`Honeycomb`)** es el sistema de memoria persistente de dos niveles: `ShortTermMemory` mantiene el contexto reciente en RAM con expiración automática por TTL; ChromaDB archiva el conocimiento consolidado a largo plazo como vectores.
+- El **Grafo de Conocimiento (`KnowledgeGraph`)** mapea relaciones entre agentes, temas y herramientas — la Reina lo consulta antes de cada misión para reutilizar perfiles de especialistas que ya tuvieron éxito en objetivos similares.
 - El **Apicultor** es el humano en el bucle: aprueba o bloquea cualquier acción antes de que la IA la ejecute.
 
 ---
@@ -88,10 +89,13 @@ jandaira/
 │       └── main.go          # Punto de entrada: servidor HTTP + WebSocket
 │
 └── internal/
-    ├── brain/               # Contratos de IA (Brain, Honeycomb)
-    │   ├── open_ai.go       # Implementación OpenAI (Chat + Embed)
-    │   ├── memory.go        # Interfaz Honeycomb + LocalVectorDB
-    │   └── chroma.go        # Implementación ChromaDB (ChromaHoneycomb)
+    ├── brain/               # Sistema nervioso del enjambre
+    │   ├── open_ai.go       # Brain: Chat + Embed vía OpenAI
+    │   ├── memory.go        # Honeycomb: interfaz vectorial + LocalVectorDB
+    │   ├── chroma.go        # ChromaHoneycomb: backend ChromaDB
+    │   ├── graph.go         # KnowledgeGraph: grafo agente ↔ tema (GraphRAG)
+    │   ├── short_term.go    # ShortTermMemory: buffer TTL + compactación automática
+    │   └── document.go      # Extracción de texto + chunking (PDF, DOCX, XLSX…)
     │
     ├── queue/               # Planificador FIFO con concurrencia limitada
     │   └── group_queue.go
@@ -118,6 +122,66 @@ jandaira/
     ├── repository/
     └── service/
 ```
+
+---
+
+## 🧠 Arquitectura de Memoria
+
+`internal/brain/` va mucho más allá de un almacén vectorial: implementa una jerarquía de memoria de dos niveles con un grafo de conocimiento que crece con cada misión.
+
+### Memoria a Corto Plazo — `ShortTermMemory`
+
+`brain/short_term.go` es un buffer de mensajes con TTL por entrada. Resuelve el problema de desbordamiento de contexto en enjambres de larga duración:
+
+- Cada mensaje recibe un timestamp de expiración al insertarse
+- Las entradas expiradas se descartan silenciosamente en el siguiente acceso
+- **Compactación automática**: cuando el buffer alcanza `maxEntries`, el LLM resume el historial acumulado en un párrafo denso → el resumen se incrusta y archiva en ChromaDB como `short_term_archive` → el buffer RAM se vacía
+- `Flush(ctx)` debe llamarse al final de cada sesión para garantizar el archivado completo
+
+```
+ Nuevo mensaje insertado
+         │
+         ▼
+┌──────────────────────────────────┐
+│      ShortTermMemory (RAM)       │
+│  [msg₁ · expira: +30min]        │
+│  [msg₂ · expira: +30min]        │
+│  ...                             │
+│  [msgN · expira: +30min]        │ ← overflow: compact() se dispara
+└──────────────────────────────────┘
+         │
+         ▼
+   LLM resume el historial
+         │
+         ▼
+┌──────────────────────────────────┐
+│  ChromaDB  (Memoria a Largo Plazo)│
+│  type: "short_term_archive"      │
+└──────────────────────────────────┘
+```
+
+### Grafo de Conocimiento — `KnowledgeGraph` (GraphRAG)
+
+`brain/graph.go` implementa un grafo de conocimiento persistido en JSON (`~/.config/jandaira/knowledge_graph.json`) que acumula expertise automáticamente tras cada workflow completado.
+
+**Modelo de datos**
+
+| Elemento | Tipo | Ejemplo |
+|---|---|---|
+| Perfil de especialista | nodo `agent` | `"Analista de Datos"` |
+| Dominio de la misión | nodo `topic` | `"análisis de informe financiero"` |
+| Vínculo de expertise | arista `expert_in` | `agent → topic` |
+
+**Ciclo de aprendizaje automático de la Reina**
+
+Después de cada workflow, `registerWorkflowInGraph` registra:
+1. Crea/actualiza un nodo `topic` con el objetivo de la misión
+2. Para cada especialista del pipeline, crea/actualiza un nodo `agent`
+3. Crea aristas `expert_in` vinculando cada agente al tema
+
+Antes de montar el siguiente enjambre, `graphContextForGoal` consulta el grafo e inyecta un bloque **"PAST SPECIALIST KNOWLEDGE"** en el prompt de meta-planificación de la Reina.
+
+Resultado: la Reina diseña enjambres progresivamente mejores con el tiempo, sin llamadas LLM adicionales.
 
 ---
 

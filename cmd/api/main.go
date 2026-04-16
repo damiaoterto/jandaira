@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/damiaoterto/jandaira/internal/api"
@@ -72,6 +73,14 @@ func main() {
 	}
 	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)
 
+	// ── Knowledge Graph ───────────────────────────────────────────────────────
+	graphPath := filepath.Join(filepath.Dir(config.GetDefaultPath()), "knowledge_graph.json")
+	knowledgeGraph, err := brain.NewLocalKnowledgeGraph(graphPath)
+	if err != nil {
+		fmt.Printf("Error initializing knowledge graph: %v\n", err)
+		os.Exit(1)
+	}
+
 	// ── API key ───────────────────────────────────────────────────────────────
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
@@ -98,10 +107,11 @@ func main() {
 	openAIBrain := brain.NewOpenAIBrain(apiKey, modelType)
 	groupQueue := queue.NewGroupQueue(3)
 	queen := swarm.NewQueen(groupQueue, openAIBrain, honeycomb)
+	queen.Graph = knowledgeGraph
 
 	queen.EquipTool(&tool.ListDirectoryTool{})
 	queen.EquipTool(&tool.ReadFileTool{})
-	queen.EquipTool(&tool.WriteFileTool{})
+	// queen.EquipTool(&tool.WriteFileTool{})
 	queen.EquipTool(&tool.CreateDirectoryTool{})
 	queen.EquipTool(&tool.ExecuteCodeTool{})
 	queen.EquipTool(&tool.SearchMemoryTool{Brain: openAIBrain, Honeycomb: honeycomb, Collection: swarmName})

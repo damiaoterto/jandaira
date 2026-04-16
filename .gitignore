@@ -25,3 +25,5 @@ go.work
 .agents
 .jandaira
 skills-lock.json
+
+workspace/

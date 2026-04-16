@@ -21,7 +21,8 @@ This is exactly the architectural model this project implements:
 - The **Queen (`Queen`)** does not execute tasks — she orchestrates, validates policies, and ensures security.
 - The **Specialists (`Specialists`)** are lightweight agents with restricted tools, executing in isolated silos.
 - **Nectar** is the metaphor for the token budget: each agent consumes nectar; when it runs out, the hive stops.
-- The **Honeycomb (`Honeycomb`)** is the shared vector memory — collective knowledge that persists between missions, stored in ChromaDB.
+- The **Honeycomb (`Honeycomb`)** is the two-tier persistent memory system: `ShortTermMemory` keeps recent context in RAM with automatic TTL expiry; ChromaDB archives consolidated long-term knowledge as vector embeddings.
+- The **Knowledge Graph (`KnowledgeGraph`)** maps relationships between agents, topics, and tools — the Queen queries it before every mission to reuse specialist profiles that have already succeeded on similar goals.
 - The **Beekeeper** is the human in the loop: they can approve or block any AI action before it is executed.
 
 ---
@@ -89,10 +90,13 @@ jandaira/
 │       └── main.go          # Entrypoint: HTTP + WebSocket server
 │
 └── internal/
-    ├── brain/               # AI contracts (Brain, Honeycomb)
-    │   ├── open_ai.go       # OpenAI implementation (Chat + Embed)
-    │   ├── memory.go        # Honeycomb interface + LocalVectorDB
-    │   └── chroma.go        # ChromaDB implementation (ChromaHoneycomb)
+    ├── brain/               # Hive nervous system
+    │   ├── open_ai.go       # Brain: Chat + Embed via OpenAI
+    │   ├── memory.go        # Honeycomb: vector interface + LocalVectorDB
+    │   ├── chroma.go        # ChromaHoneycomb: ChromaDB backend
+    │   ├── graph.go         # KnowledgeGraph: agent ↔ topic graph (GraphRAG)
+    │   ├── short_term.go    # ShortTermMemory: TTL buffer + auto-compaction
+    │   └── document.go      # Text extraction + chunking (PDF, DOCX, XLSX…)
     │
     ├── queue/               # FIFO scheduler with limited concurrency
     │   └── group_queue.go   # GroupQueue: N workers per group
@@ -122,6 +126,94 @@ jandaira/
 
 ---
 
+## 🧠 Memory Architecture
+
+`internal/brain/` goes far beyond a vector store: it implements a two-tier memory hierarchy with a knowledge graph that grows with every mission.
+
+### Short-Term Memory — `ShortTermMemory`
+
+`brain/short_term.go` is a per-entry TTL message buffer. It solves the context overflow problem in long-running swarms:
+
+- Each message receives an expiry timestamp at insertion time
+- Expired entries are silently dropped on the next access
+- **Automatic compaction**: when the buffer hits `maxEntries`, the LLM summarises the accumulated history into a dense paragraph → the summary is embedded and archived in ChromaDB as `short_term_archive` → the RAM buffer is cleared
+- `Flush(ctx)` should be called at session end to guarantee complete archival; if the LLM fails, the raw transcript is archived as a fallback
+
+```
+ New message inserted
+         │
+         ▼
+┌──────────────────────────────────┐
+│      ShortTermMemory (RAM)       │
+│  [msg₁ · expires: +30min]       │
+│  [msg₂ · expires: +30min]       │
+│  ...                             │
+│  [msgN · expires: +30min]       │ ← overflow: compact() fires
+└──────────────────────────────────┘
+         │
+         ▼
+   LLM summarises history
+         │
+         ▼
+┌──────────────────────────────────┐
+│  ChromaDB  (Long-Term Memory)    │
+│  type: "short_term_archive"      │
+│  content: "In [session], the     │
+│  agent decided X, found Y..."   │
+└──────────────────────────────────┘
+```
+
+### Knowledge Graph — `KnowledgeGraph` (GraphRAG)
+
+`brain/graph.go` implements a JSON-persisted knowledge graph (`~/.config/jandaira/knowledge_graph.json`) that automatically accumulates expertise after every completed workflow.
+
+**Data model**
+
+| Element | Type | Example |
+|---|---|---|
+| Specialist profile | `agent` node | `"Data Analyst"` |
+| Mission domain | `topic` node | `"financial report analysis"` |
+| Expertise link | `expert_in` edge | `agent → topic` |
+
+**Queen's automatic learning cycle**
+
+After each workflow, `registerWorkflowInGraph` runs in the background:
+1. Creates/updates a `topic` node with the mission goal (up to 80 chars)
+2. For each pipeline specialist, creates/updates an `agent` node with the prompt preview
+3. Creates `expert_in` edges linking each agent to the topic
+
+Before assembling the next swarm, `graphContextForGoal`:
+1. Extracts keywords from the goal (> 4 chars)
+2. Finds `topic` nodes whose label contains each keyword
+3. Returns the `agent` nodes connected via `expert_in`
+4. Injects a **"PAST SPECIALIST KNOWLEDGE"** block into the meta-planning prompt
+
+Result: the Queen designs progressively better swarms over time, using only graph lookups — no extra LLM calls.
+
+```
+ New goal: "Analyse quarterly sales data"
+         │
+         ▼
+  graphContextForGoal() — extract keywords
+         │
+         ▼
+┌────────────────────────────────────────────┐
+│              KnowledgeGraph                │
+│                                            │
+│  "Sales Analyst"  ─expert_in─► "sales data"
+│  "Report Extractor" ─expert_in─► "quarterly analysis"
+│                                            │
+└────────────────────────────────────────────┘
+         │  historical profiles found
+         ▼
+  Queen prompt enriched with past specialists
+         │
+         ▼
+  AssembleSwarm() → more precise delegation
+```
+
+---
+
 ## ⚡ Differentials vs. NanoClaw
 
 | Feature | NanoClaw (Python) | Jandaira (Go) |
@@ -134,6 +226,8 @@ jandaira/
 | **Human-in-the-Loop** | Optional / external | ✅ Native: Beekeeper mode via WebSocket |
 | **Token budget** | Manual | ✅ Automatic `NectarUsage` per swarm |
 | **Vector memory** | Pinecone / external | ✅ ChromaDB via Docker |
+| **Knowledge graph** | ❌ Does not exist | ✅ `KnowledgeGraph` — native GraphRAG |
+| **Short-term memory** | ❌ Does not exist | ✅ `ShortTermMemory` with TTL + LLM compaction |
 | **Interface** | Nonexistent | ✅ REST API + WebSocket |
 | **IPC latency** | High (disk/network I/O) | Minimal (memory) |
 

@@ -21,7 +21,8 @@ Esse é exatamente o modelo de arquitetura que o projeto implementa:
 - A **Rainha (`Queen`)** não executa tarefas — ela orquestra, valida políticas e garante segurança.
 - As **Especialistas (`Specialists`)** são agentes leves com ferramentas restritas, executando em silos isolados.
 - O **Néctar** é a metáfora para o orçamento de tokens: cada agente consome néctar; quando acaba, a colmeia para.
-- A **Colmeia (`Honeycomb`)** é a memória vetorial compartilhada — o conhecimento coletivo que persiste entre missões, armazenado no ChromaDB.
+- A **Colmeia (`Honeycomb`)** é o sistema de memória persistente em duas camadas: o `ShortTermMemory` mantém o contexto recente em RAM com expiração automática por TTL; o ChromaDB arquiva o conhecimento consolidado como vetores de longo prazo.
+- O **Grafo de Conhecimento (`KnowledgeGraph`)** mapeia relações entre agentes, tópicos e ferramentas — a Rainha consulta esse grafo antes de cada missão para reutilizar perfis de especialistas que já obtiveram sucesso em objetivos semelhantes.
 - O **Apicultor** é o humano no loop: pode aprovar ou bloquear qualquer ação da IA antes de ela ser executada.
 
 ---
@@ -89,10 +90,13 @@ jandaira/
 │       └── main.go          # Entrypoint: servidor HTTP + WebSocket
 │
 └── internal/
-    ├── brain/               # Contratos de IA (Brain, Honeycomb)
-    │   ├── open_ai.go       # Implementação OpenAI (Chat + Embed)
-    │   ├── memory.go        # Interface Honeycomb + LocalVectorDB
-    │   └── chroma.go        # Implementação ChromaDB (ChromaHoneycomb)
+    ├── brain/               # Sistema nervoso do enxame
+    │   ├── open_ai.go       # Brain: Chat + Embed via OpenAI
+    │   ├── memory.go        # Honeycomb: interface vetorial + LocalVectorDB
+    │   ├── chroma.go        # ChromaHoneycomb: backend ChromaDB
+    │   ├── graph.go         # KnowledgeGraph: grafo agente ↔ tópico (GraphRAG)
+    │   ├── short_term.go    # ShortTermMemory: buffer TTL + compactação automática
+    │   └── document.go      # Extração de texto + chunking (PDF, DOCX, XLSX…)
     │
     ├── queue/               # Escalonador FIFO com concorrência limitada
     │   └── group_queue.go   # GroupQueue: N workers por grupo
@@ -122,6 +126,97 @@ jandaira/
 
 ---
 
+## 🧠 Arquitetura de Memória
+
+O `internal/brain/` vai além de um banco vetorial: implementa uma hierarquia de memória em dois níveis com um grafo de conhecimento que cresce a cada missão.
+
+### Memória de Curto Prazo — `ShortTermMemory`
+
+`brain/short_term.go` é um buffer de mensagens com TTL por entrada. Ele resolve o problema de overflow de contexto em enxames de longa duração:
+
+- Cada mensagem recebe um timestamp de expiração no momento da inserção
+- Entradas expiradas são descartadas silenciosamente no próximo acesso
+- **Compactação automática**: quando o buffer atinge `maxEntries`, o LLM sumariza o histórico acumulado em um parágrafo denso → o resumo é embeddado e arquivado no ChromaDB como `short_term_archive` → o buffer RAM é zerado
+- `Flush(ctx)` deve ser chamado ao final de cada sessão para garantir arquivamento completo; em caso de falha do LLM, o transcript bruto é arquivado como fallback
+
+```
+ Nova mensagem inserida
+         │
+         ▼
+┌──────────────────────────────────┐
+│      ShortTermMemory (RAM)       │
+│  [msg₁ · expiração: +30min]     │
+│  [msg₂ · expiração: +30min]     │
+│  ...                             │
+│  [msgN · expiração: +30min]     │ ← overflow: compact() dispara
+└──────────────────────────────────┘
+         │
+         ▼
+   LLM sumariza o histórico
+         │
+         ▼
+┌──────────────────────────────────┐
+│  ChromaDB  (Memória de Longo Prazo)│
+│  type: "short_term_archive"      │
+│  content: "Em [sessão], o agente │
+│  decidiu X, encontrou Y..."      │
+└──────────────────────────────────┘
+```
+
+### Grafo de Conhecimento — `KnowledgeGraph` (GraphRAG)
+
+`brain/graph.go` implementa um grafo de conhecimento persistido em JSON (`~/.config/jandaira/knowledge_graph.json`) que acumula expertise automaticamente a cada workflow concluído.
+
+**Modelo de dados**
+
+| Elemento | Tipo | Exemplo |
+|---|---|---|
+| Perfil de especialista | nó `agent` | `"Analista de Dados"` |
+| Domínio da missão | nó `topic` | `"análise de relatório financeiro"` |
+| Vínculo de expertise | aresta `expert_in` | `agent → topic` |
+
+**Ciclo de aprendizado automático da Queen**
+
+Após cada workflow, `registerWorkflowInGraph` executa em background:
+1. Cria/atualiza um nó `topic` com o objetivo da missão (até 80 chars)
+2. Para cada especialista do pipeline, cria/atualiza um nó `agent` com o preview do prompt
+3. Cria arestas `expert_in` ligando cada agente ao tópico
+
+Antes de montar o próximo enxame, `graphContextForGoal` faz:
+1. Extrai palavras-chave do objetivo (> 4 chars)
+2. Busca nós `topic` cujo label contenha cada palavra-chave
+3. Retorna os nós `agent` conectados via `expert_in`
+4. Injeta o bloco **"PAST SPECIALIST KNOWLEDGE"** no prompt de meta-planejamento
+
+Resultado: a Rainha projeta enxames progressivamente melhores ao longo do tempo, sem chamadas LLM extras, apenas consultando o grafo acumulado.
+
+```
+ Novo objetivo: "Analisar dados de vendas trimestrais"
+         │
+         ▼
+  graphContextForGoal() — extrai palavras-chave
+         │
+         ▼
+┌────────────────────────────────────────────┐
+│              KnowledgeGraph                │
+│                                            │
+│  "Analista de Vendas" ─expert_in─► "dados de vendas"
+│  "Extrator de Relatórios" ─expert_in─► "análise trimestral"
+│                                            │
+└────────────────────────────────────────────┘
+         │  perfis históricos encontrados
+         ▼
+  Prompt da Queen enriquecido:
+  "PAST SPECIALIST KNOWLEDGE:
+   - Analista de Vendas: especialista em...
+   - Extrator de Relatórios: usa read_file e..."
+         │
+         ▼
+  AssembleSwarm() com contexto histórico → delegação mais precisa
+```
+
+---
+
 ## ⚡ Diferenciais vs. NanoClaw
 
 | Característica                | NanoClaw (Python)     | Jandaira (Go)                          |
@@ -134,6 +229,8 @@ jandaira/
 | **Human-in-the-Loop**         | Opcional / externo    | ✅ Nativo: modo Apicultor via WebSocket |
 | **Budget de tokens**          | Manual                | ✅ `NectarUsage` automático por enxame |
 | **Memória vetorial**          | Pinecone / externo    | ✅ ChromaDB via Docker                 |
+| **Grafo de conhecimento**     | ❌ Não existe         | ✅ `KnowledgeGraph` — GraphRAG nativo  |
+| **Memória de curto prazo**    | ❌ Não existe         | ✅ `ShortTermMemory` com TTL e compactação LLM |
 | **Interface**                 | Inexistente           | ✅ API REST + WebSocket                |
 | **Latência de IPC**           | Alta (I/O disco/rede) | Mínima (memória)                       |
 
