@@ -26,6 +26,11 @@ tags:
     description: Stateless swarm execution
   - name: Sessions
     description: Persistent execution sessions with agent tracking
+  - name: Colmeias
+    description: |
+      Persistent named hives with reusable agents and conversation history.
+      A hive can be dispatched multiple times; previous results are injected as context.
+      Agents can be pre-defined by the user (queen_managed=false) or assembled automatically by the Queen (queen_managed=true).
   - name: Documents
     description: Upload and index documents into the session's vector memory (ChromaDB)
   - name: Catalog
@@ -352,6 +357,334 @@ paths:
                       $ref: '#/components/schemas/Agent'
                   total:
                     type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias:
+    get:
+      tags: [Colmeias]
+      summary: List all hives
+      responses:
+        '200':
+          description: Hive list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  colmeias:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Colmeia'
+                  total:
+                    type: integer
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [Colmeias]
+      summary: Create a hive
+      description: |
+        Creates a persistent named hive. Set `queen_managed: false` to use
+        pre-defined agents; `true` (default) lets the Queen assemble agents
+        automatically on every dispatch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateColmeiaRequest'
+            examples:
+              queen_managed:
+                summary: Queen-managed hive
+                value:
+                  name: "Research Hive"
+                  description: "General-purpose research"
+                  queen_managed: true
+              user_defined:
+                summary: User-defined agents
+                value:
+                  name: "Code Review Hive"
+                  description: "Fixed pipeline for code reviews"
+                  queen_managed: false
+      responses:
+        '201':
+          description: Hive created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  colmeia:
+                    $ref: '#/components/schemas/Colmeia'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+
+    get:
+      tags: [Colmeias]
+      summary: Get a hive with its agents
+      responses:
+        '200':
+          description: Hive with agents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ColmeiaWithAgentes'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      tags: [Colmeias]
+      summary: Update a hive
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateColmeiaRequest'
+      responses:
+        '200':
+          description: Hive updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  colmeia:
+                    $ref: '#/components/schemas/Colmeia'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [Colmeias]
+      summary: Delete a hive
+      description: Permanently removes the hive, all its agents, and its dispatch history (cascade delete).
+      responses:
+        '200':
+          description: Hive deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/dispatch:
+    post:
+      tags: [Colmeias]
+      summary: Send a message to a hive
+      description: |
+        Dispatches a goal to the hive asynchronously. The last 3 completed
+        dispatches are injected as conversation context so the agents maintain
+        continuity across multiple interactions.
+
+        - `queen_managed: true` → Queen assembles a dynamic pipeline for this goal.
+        - `queen_managed: false` → Uses the hive's pre-defined agents as the pipeline.
+
+        Progress is streamed via WebSocket. Returns `400` if `queen_managed=false`
+        and no agents have been defined yet.
+      parameters:
+        - $ref: '#/components/parameters/ColmeiaID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goal]
+              properties:
+                goal:
+                  type: string
+                  example: "Summarise the latest AI news"
+      responses:
+        '202':
+          description: Mission dispatched asynchronously
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ColmeiaDispatchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/historico:
+    get:
+      tags: [Colmeias]
+      summary: List dispatch history
+      description: Returns all dispatches for the hive, ordered from newest to oldest.
+      parameters:
+        - $ref: '#/components/parameters/ColmeiaID'
+      responses:
+        '200':
+          description: Dispatch history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  historico:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HistoricoDespacho'
+                  total:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/agentes:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+
+    get:
+      tags: [Colmeias]
+      summary: List hive agents
+      responses:
+        '200':
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agentes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgenteColmeia'
+                  total:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [Colmeias]
+      summary: Add an agent to a hive
+      description: |
+        Creates a persistent agent inside the hive. The agent's `system_prompt`
+        and `allowed_tools` are fully editable via `PUT /api/colmeias/{id}/agentes/{agentId}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertAgenteRequest'
+            example:
+              name: "Code Reviewer"
+              system_prompt: "You are an expert Go code reviewer. Read files and provide detailed feedback."
+              allowed_tools: ["read_file", "list_directory", "web_search"]
+      responses:
+        '201':
+          description: Agent added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  agente:
+                    $ref: '#/components/schemas/AgenteColmeia'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/agentes/{agentId}:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+      - $ref: '#/components/parameters/AgenteID'
+
+    put:
+      tags: [Colmeias]
+      summary: Update an agent
+      description: |
+        Edits the agent's name, system prompt, and allowed tools.
+        Changes take effect on the next dispatch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertAgenteRequest'
+      responses:
+        '200':
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  agente:
+                    $ref: '#/components/schemas/AgenteColmeia'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [Colmeias]
+      summary: Remove an agent from a hive
+      responses:
+        '200':
+          description: Agent removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
         '404':
           $ref: '#/components/responses/NotFound'
         '428':
@@ -690,6 +1023,152 @@ components:
           description: ID of the session this document is associated with
           example: "550e8400-e29b-41d4-a716-446655440000"
 
+    Colmeia:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        name:
+          type: string
+          example: "Research Hive"
+        description:
+          type: string
+          example: "General-purpose research hive"
+        queen_managed:
+          type: boolean
+          description: |
+            true → Queen assembles agents dynamically per dispatch.
+            false → Uses the hive's pre-defined agents as the pipeline.
+          example: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ColmeiaWithAgentes:
+      allOf:
+        - $ref: '#/components/schemas/Colmeia'
+        - type: object
+          properties:
+            agentes:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgenteColmeia'
+
+    AgenteColmeia:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        colmeia_id:
+          type: string
+          format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        name:
+          type: string
+          example: "Code Reviewer"
+        system_prompt:
+          type: string
+          description: Full system prompt for this agent. Editable by the user.
+          example: "You are an expert Go code reviewer..."
+        allowed_tools:
+          type: string
+          description: JSON array of tool names this agent is allowed to use.
+          example: '["read_file","list_directory","web_search"]'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    HistoricoDespacho:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "f0e1d2c3-b4a5-6789-cdef-012345678901"
+        colmeia_id:
+          type: string
+          format: uuid
+        goal:
+          type: string
+          description: The original goal sent by the user (without injected history context).
+          example: "Summarise the latest AI news"
+        result:
+          type: string
+          description: Final workflow output. Populated after completion.
+        status:
+          type: string
+          enum: [active, completed, failed]
+          example: "completed"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateColmeiaRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: "Research Hive"
+        description:
+          type: string
+          example: "General-purpose research"
+        queen_managed:
+          type: boolean
+          default: true
+          description: |
+            true → Queen assembles agents automatically (default).
+            false → Use pre-defined agents via POST /api/colmeias/{id}/agentes.
+
+    UpsertAgenteRequest:
+      type: object
+      required: [name, system_prompt]
+      properties:
+        name:
+          type: string
+          example: "Code Reviewer"
+        system_prompt:
+          type: string
+          example: "You are an expert Go code reviewer. Analyse files and provide feedback."
+        allowed_tools:
+          type: array
+          items:
+            type: string
+          example: ["read_file", "list_directory", "web_search"]
+
+    ColmeiaDispatchResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Missão despachada. Acompanhe o progresso via WebSocket."
+        colmeia_id:
+          type: string
+          format: uuid
+        historico_id:
+          type: string
+          format: uuid
+          description: ID of the HistoricoDespacho record created for this dispatch.
+        agents:
+          type: integer
+          description: Number of agents in the pipeline.
+        mode:
+          type: string
+          enum: [queen_managed, user_defined]
+          description: Whether the Queen assembled agents or pre-defined agents were used.
+
     MessageResponse:
       type: object
       properties:
@@ -712,6 +1191,25 @@ components:
         type: string
         format: uuid
       example: "550e8400-e29b-41d4-a716-446655440000"
+
+    ColmeiaID:
+      name: id
+      in: path
+      required: true
+      description: Colmeia UUID
+      schema:
+        type: string
+        format: uuid
+      example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+    AgenteID:
+      name: agentId
+      in: path
+      required: true
+      description: AgenteColmeia integer ID
+      schema:
+        type: integer
+      example: 1
 
   responses:
     BadRequest:

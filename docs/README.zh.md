@@ -351,12 +351,72 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 
 ### REST 路由
 
+#### 配置与调度
+
 | 方法 | 路由 | 描述 |
 |---|---|---|
-| `POST` | `/api/dispatch` | 向蜂群提交目标并执行 |
+| `POST` | `/api/setup` | 首次运行时配置蜂巢 |
+| `POST` | `/api/dispatch` | 向蜂群提交目标（无状态） |
 | `GET` | `/api/tools` | 列出所有可用工具及其参数 |
-| `GET` | `/api/agents` | 列出已配置工作流中的专家 |
 | `GET` | `/ws` | 打开 WebSocket 连接以接收实时事件 |
+
+#### 会话
+
+| 方法 | 路由 | 描述 |
+|---|---|---|
+| `GET` | `/api/sessions` | 列出所有会话 |
+| `POST` | `/api/sessions` | 创建新会话 |
+| `GET` | `/api/sessions/:id` | 获取带智能体的会话 |
+| `DELETE` | `/api/sessions/:id` | 删除会话（级联） |
+| `POST` | `/api/sessions/:id/dispatch` | 为会话调度工作流 |
+| `GET` | `/api/sessions/:id/agents` | 列出会话智能体 |
+| `POST` | `/api/sessions/:id/documents` | 上传并索引文档 |
+
+#### 持久蜂巢（Colmeias）
+
+蜂巢是持久化的命名实体。与会话不同，蜂巢可以**随时间接收多条消息**，将对话历史作为上下文注入每次新调度。智能体可由**用户预先定义**（自定义提示词和工具），也可由**蜂王自动组建**。
+
+| 方法 | 路由 | 描述 |
+|---|---|---|
+| `GET` | `/api/colmeias` | 列出所有蜂巢 |
+| `POST` | `/api/colmeias` | 创建蜂巢（`queen_managed: true/false`） |
+| `GET` | `/api/colmeias/:id` | 获取带智能体的蜂巢 |
+| `PUT` | `/api/colmeias/:id` | 更新蜂巢 |
+| `DELETE` | `/api/colmeias/:id` | 删除蜂巢（级联） |
+| `POST` | `/api/colmeias/:id/dispatch` | 向蜂巢发送消息 |
+| `GET` | `/api/colmeias/:id/historico` | 查看对话历史 |
+| `GET` | `/api/colmeias/:id/agentes` | 列出蜂巢智能体 |
+| `POST` | `/api/colmeias/:id/agentes` | 添加预定义智能体 |
+| `PUT` | `/api/colmeias/:id/agentes/:agentId` | 编辑智能体（名称、提示词、工具） |
+| `DELETE` | `/api/colmeias/:id/agentes/:agentId` | 从蜂巢移除智能体 |
+
+**示例 — 创建用户自定义智能体的蜂巢：**
+
+```bash
+# 1. 创建蜂巢
+curl -X POST http://localhost:8080/api/colmeias \
+  -H "Content-Type: application/json" \
+  -d '{"name": "研究蜂巢", "queen_managed": false}'
+
+# 2. 添加带自定义提示词的智能体
+curl -X POST http://localhost:8080/api/colmeias/{id}/agentes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "网络研究员",
+    "system_prompt": "你是一名研究专家。使用 web_search 收集最新信息。",
+    "allowed_tools": ["web_search", "search_memory", "store_memory"]
+  }'
+
+# 3. 发送第一条消息
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "查找本周人工智能领域的主要新闻"}'
+
+# 4. 发送后续消息（历史记录自动注入为上下文）
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "根据之前的研究，撰写一份高管摘要"}'
+```
 
 #### `POST /api/dispatch`
 

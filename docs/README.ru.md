@@ -353,12 +353,72 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 
 ### REST-маршруты
 
+#### Настройка и отправка
+
 | Метод | Маршрут | Описание |
 |---|---|---|
-| `POST` | `/api/dispatch` | Отправляет цель рою для выполнения |
-| `GET` | `/api/tools` | Возвращает список всех доступных инструментов |
-| `GET` | `/api/agents` | Возвращает список специалистов в рабочем процессе |
-| `GET` | `/ws` | Открывает WebSocket-соединение для событий в реальном времени |
+| `POST` | `/api/setup` | Настройка улья при первом запуске |
+| `POST` | `/api/dispatch` | Отправляет цель рою (без состояния) |
+| `GET` | `/api/tools` | Список всех доступных инструментов |
+| `GET` | `/ws` | WebSocket-соединение для событий в реальном времени |
+
+#### Сессии
+
+| Метод | Маршрут | Описание |
+|---|---|---|
+| `GET` | `/api/sessions` | Список всех сессий |
+| `POST` | `/api/sessions` | Создать сессию |
+| `GET` | `/api/sessions/:id` | Получить сессию с агентами |
+| `DELETE` | `/api/sessions/:id` | Удалить сессию (каскад) |
+| `POST` | `/api/sessions/:id/dispatch` | Запустить рабочий процесс для сессии |
+| `GET` | `/api/sessions/:id/agents` | Список агентов сессии |
+| `POST` | `/api/sessions/:id/documents` | Загрузить и проиндексировать документ |
+
+#### Постоянные ульи (Colmeias)
+
+Ульи — именованные постоянные сущности. В отличие от сессий, улей может получать **несколько сообщений с течением времени**, сохраняя историю разговоров как контекст для каждой новой отправки. Агенты могут быть **заранее определены пользователем** (с настраиваемыми промптами и инструментами) или **собраны Королевой автоматически**.
+
+| Метод | Маршрут | Описание |
+|---|---|---|
+| `GET` | `/api/colmeias` | Список всех ульев |
+| `POST` | `/api/colmeias` | Создать улей (`queen_managed: true/false`) |
+| `GET` | `/api/colmeias/:id` | Получить улей с агентами |
+| `PUT` | `/api/colmeias/:id` | Обновить улей |
+| `DELETE` | `/api/colmeias/:id` | Удалить улей (каскад) |
+| `POST` | `/api/colmeias/:id/dispatch` | Отправить сообщение улью |
+| `GET` | `/api/colmeias/:id/historico` | История разговоров |
+| `GET` | `/api/colmeias/:id/agentes` | Список агентов улья |
+| `POST` | `/api/colmeias/:id/agentes` | Добавить предопределённого агента |
+| `PUT` | `/api/colmeias/:id/agentes/:agentId` | Редактировать агента (промпт, инструменты) |
+| `DELETE` | `/api/colmeias/:id/agentes/:agentId` | Удалить агента из улья |
+
+**Пример — создание улья с агентами, определёнными пользователем:**
+
+```bash
+# 1. Создать улей
+curl -X POST http://localhost:8080/api/colmeias \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Исследовательский улей", "queen_managed": false}'
+
+# 2. Добавить агента с настраиваемым промптом
+curl -X POST http://localhost:8080/api/colmeias/{id}/agentes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Веб-исследователь",
+    "system_prompt": "Вы специалист по исследованиям. Используйте web_search для сбора актуальной информации.",
+    "allowed_tools": ["web_search", "search_memory", "store_memory"]
+  }'
+
+# 3. Отправить первое сообщение
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Найдите главные новости об ИИ за эту неделю"}'
+
+# 4. Отправить следующее сообщение (история автоматически добавляется как контекст)
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "На основе предыдущего исследования напишите резюме для руководства"}'
+```
 
 #### `POST /api/dispatch`
 

@@ -296,12 +296,72 @@ Además, las claves y accesos son gestionados localmente usando el paquete `inte
 
 ### Rutas REST
 
+#### Configuración y Despacho
+
 | Método | Ruta | Descripción |
 |---|---|---|
-| `POST` | `/api/dispatch` | Envía un objetivo al enjambre |
+| `POST` | `/api/setup` | Configura la colmena en la primera ejecución |
+| `POST` | `/api/dispatch` | Envía un objetivo al enjambre (sin estado) |
 | `GET` | `/api/tools` | Lista todas las herramientas disponibles |
-| `GET` | `/api/agents` | Lista los especialistas del flujo configurado |
 | `GET` | `/ws` | Abre una conexión WebSocket para eventos en tiempo real |
+
+#### Sesiones
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/sessions` | Lista todas las sesiones |
+| `POST` | `/api/sessions` | Crea una nueva sesión |
+| `GET` | `/api/sessions/:id` | Obtiene sesión con agentes |
+| `DELETE` | `/api/sessions/:id` | Elimina sesión (cascada) |
+| `POST` | `/api/sessions/:id/dispatch` | Despacha workflow para la sesión |
+| `GET` | `/api/sessions/:id/agents` | Lista agentes de la sesión |
+| `POST` | `/api/sessions/:id/documents` | Sube e indexa un documento |
+
+#### Colmenas Persistentes (Colmeias)
+
+Las colmenas son entidades persistentes y con nombre. A diferencia de las sesiones, una colmena puede recibir **múltiples mensajes a lo largo del tiempo**, manteniendo el historial de conversaciones como contexto. Los agentes pueden ser **predefinidos por el usuario** (con prompts y herramientas personalizables) o **ensamblados automáticamente por la Reina**.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/colmeias` | Lista todas las colmenas |
+| `POST` | `/api/colmeias` | Crea colmena (`queen_managed: true/false`) |
+| `GET` | `/api/colmeias/:id` | Obtiene colmena con agentes |
+| `PUT` | `/api/colmeias/:id` | Actualiza colmena |
+| `DELETE` | `/api/colmeias/:id` | Elimina colmena (cascada) |
+| `POST` | `/api/colmeias/:id/dispatch` | Envía mensaje a la colmena |
+| `GET` | `/api/colmeias/:id/historico` | Lista historial de conversaciones |
+| `GET` | `/api/colmeias/:id/agentes` | Lista agentes de la colmena |
+| `POST` | `/api/colmeias/:id/agentes` | Agrega agente predefinido |
+| `PUT` | `/api/colmeias/:id/agentes/:agentId` | Edita nombre, prompt y herramientas |
+| `DELETE` | `/api/colmeias/:id/agentes/:agentId` | Elimina agente de la colmena |
+
+**Ejemplo — crear colmena con agentes definidos por el usuario:**
+
+```bash
+# 1. Crear colmena
+curl -X POST http://localhost:8080/api/colmeias \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Colmena de Investigación", "queen_managed": false}'
+
+# 2. Agregar agente con prompt personalizado
+curl -X POST http://localhost:8080/api/colmeias/{id}/agentes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Investigador Web",
+    "system_prompt": "Eres un especialista en investigación. Usa web_search para recopilar información actualizada.",
+    "allowed_tools": ["web_search", "search_memory", "store_memory"]
+  }'
+
+# 3. Enviar primer mensaje
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Busca las principales noticias sobre IA de esta semana"}'
+
+# 4. Enviar seguimiento (historial anterior inyectado automáticamente como contexto)
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Con base en la investigación anterior, escribe un resumen ejecutivo"}'
+```
 
 ### Eventos WebSocket (`/ws`)
 

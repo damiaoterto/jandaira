@@ -382,12 +382,72 @@ O servidor HTTP é iniciado com `./jandaira-api --port 8080` e expõe as seguint
 
 ### Rotas REST
 
+#### Configuração e Despacho
+
 | Método | Rota            | Descrição                                                |
 | ------ | --------------- | -------------------------------------------------------- |
-| `POST` | `/api/dispatch` | Envia um objetivo ao enxame para execução                |
+| `POST` | `/api/setup`    | Configura a colmeia na primeira execução                 |
+| `POST` | `/api/dispatch` | Envia um objetivo ao enxame para execução (sem estado)   |
 | `GET`  | `/api/tools`    | Lista todas as ferramentas disponíveis e seus parâmetros |
-| `GET`  | `/api/agents`   | Lista os especialistas do workflow configurado           |
 | `GET`  | `/ws`           | Abre uma conexão WebSocket para eventos em tempo real    |
+
+#### Sessões
+
+| Método   | Rota                           | Descrição                                      |
+| -------- | ------------------------------ | ---------------------------------------------- |
+| `GET`    | `/api/sessions`                | Lista todas as sessões                         |
+| `POST`   | `/api/sessions`                | Cria uma nova sessão                           |
+| `GET`    | `/api/sessions/:id`            | Busca sessão com agentes                       |
+| `DELETE` | `/api/sessions/:id`            | Deleta sessão (cascade)                        |
+| `POST`   | `/api/sessions/:id/dispatch`   | Despacha workflow para a sessão                |
+| `GET`    | `/api/sessions/:id/agents`     | Lista agentes da sessão                        |
+| `POST`   | `/api/sessions/:id/documents`  | Faz upload e indexa documento                  |
+
+#### Colmeias Persistentes
+
+Colmeias são hives nomeadas e persistentes. Diferente de sessões, uma colmeia pode receber **múltiplas mensagens ao longo do tempo**, mantendo histórico de conversas como contexto. Os agentes podem ser **pré-definidos pelo usuário** (com prompts e ferramentas customizáveis) ou **montados automaticamente pela rainha**.
+
+| Método   | Rota                                    | Descrição                                              |
+| -------- | --------------------------------------- | ------------------------------------------------------ |
+| `GET`    | `/api/colmeias`                         | Lista todas as colmeias                                |
+| `POST`   | `/api/colmeias`                         | Cria colmeia (`queen_managed: true/false`)             |
+| `GET`    | `/api/colmeias/:id`                     | Busca colmeia com agentes                              |
+| `PUT`    | `/api/colmeias/:id`                     | Atualiza colmeia                                       |
+| `DELETE` | `/api/colmeias/:id`                     | Deleta colmeia (cascade)                               |
+| `POST`   | `/api/colmeias/:id/dispatch`            | Envia mensagem à colmeia                               |
+| `GET`    | `/api/colmeias/:id/historico`           | Lista histórico de conversas                           |
+| `GET`    | `/api/colmeias/:id/agentes`             | Lista agentes da colmeia                               |
+| `POST`   | `/api/colmeias/:id/agentes`             | Adiciona agente pré-definido                           |
+| `PUT`    | `/api/colmeias/:id/agentes/:agentId`    | Edita nome, prompt e ferramentas do agente             |
+| `DELETE` | `/api/colmeias/:id/agentes/:agentId`    | Remove agente da colmeia                               |
+
+**Exemplo — criar colmeia com agentes definidos pelo usuário:**
+
+```bash
+# 1. Criar colmeia
+curl -X POST http://localhost:8080/api/colmeias \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Colmeia de Pesquisa", "queen_managed": false}'
+
+# 2. Adicionar agente com prompt customizado
+curl -X POST http://localhost:8080/api/colmeias/{id}/agentes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Pesquisador Web",
+    "system_prompt": "Você é um especialista em pesquisa. Use web_search para coletar informações atualizadas.",
+    "allowed_tools": ["web_search", "search_memory", "store_memory"]
+  }'
+
+# 3. Enviar primeira mensagem
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Pesquise as principais notícias sobre IA desta semana"}'
+
+# 4. Enviar segunda mensagem (histórico anterior é injetado como contexto)
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Com base na pesquisa anterior, faça um resumo executivo"}'
+```
 
 #### `POST /api/dispatch`
 

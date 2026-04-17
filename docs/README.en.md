@@ -379,12 +379,72 @@ Start the HTTP server with `./jandaira-api --port 8080`. The following routes ar
 
 ### REST Routes
 
+#### Setup & Dispatch
+
 | Method | Route | Description |
 |---|---|---|
-| `POST` | `/api/dispatch` | Submits a goal to the swarm for execution |
+| `POST` | `/api/setup` | Configure the hive on first run |
+| `POST` | `/api/dispatch` | Submit a goal to the swarm (stateless) |
 | `GET` | `/api/tools` | Lists all available tools and their parameters |
-| `GET` | `/api/agents` | Lists the specialists in the configured workflow |
 | `GET` | `/ws` | Opens a WebSocket connection for real-time events |
+
+#### Sessions
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/api/sessions` | List all sessions |
+| `POST` | `/api/sessions` | Create a new session |
+| `GET` | `/api/sessions/:id` | Get session with agents |
+| `DELETE` | `/api/sessions/:id` | Delete session (cascade) |
+| `POST` | `/api/sessions/:id/dispatch` | Dispatch workflow for a session |
+| `GET` | `/api/sessions/:id/agents` | List session agents |
+| `POST` | `/api/sessions/:id/documents` | Upload and index a document |
+
+#### Persistent Hives (Colmeias)
+
+Hives are persistent, named entities. Unlike sessions, a hive can receive **multiple messages over time**, carrying conversation history as context for each new dispatch. Agents can be **pre-defined by the user** (with custom prompts and tools) or **assembled automatically by the Queen**.
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/api/colmeias` | List all hives |
+| `POST` | `/api/colmeias` | Create hive (`queen_managed: true/false`) |
+| `GET` | `/api/colmeias/:id` | Get hive with agents |
+| `PUT` | `/api/colmeias/:id` | Update hive |
+| `DELETE` | `/api/colmeias/:id` | Delete hive (cascade) |
+| `POST` | `/api/colmeias/:id/dispatch` | Send a message to the hive |
+| `GET` | `/api/colmeias/:id/historico` | List conversation history |
+| `GET` | `/api/colmeias/:id/agentes` | List hive agents |
+| `POST` | `/api/colmeias/:id/agentes` | Add pre-defined agent |
+| `PUT` | `/api/colmeias/:id/agentes/:agentId` | Edit agent name, prompt, tools |
+| `DELETE` | `/api/colmeias/:id/agentes/:agentId` | Remove agent from hive |
+
+**Example — create a hive with user-defined agents:**
+
+```bash
+# 1. Create hive
+curl -X POST http://localhost:8080/api/colmeias \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Research Hive", "queen_managed": false}'
+
+# 2. Add agent with custom prompt
+curl -X POST http://localhost:8080/api/colmeias/{id}/agentes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Web Researcher",
+    "system_prompt": "You are a research specialist. Use web_search to gather up-to-date information.",
+    "allowed_tools": ["web_search", "search_memory", "store_memory"]
+  }'
+
+# 3. Send first message
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Find the top AI news from this week"}'
+
+# 4. Send follow-up (previous history injected as context automatically)
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Based on the previous research, write an executive summary"}'
+```
 
 #### `POST /api/dispatch`
 

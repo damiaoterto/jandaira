@@ -49,6 +49,7 @@ type Server struct {
 	Port           int
 	configService  service.ConfigService
 	sessionService service.SessionService
+	colmeiaService service.ColmeiaService
 
 	// WebSocket client management
 	clients   map[*websocket.Conn]bool
@@ -59,12 +60,13 @@ type Server struct {
 	pendingApprovalsMu sync.Mutex
 }
 
-func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService) *Server {
+func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService) *Server {
 	s := &Server{
 		Queen:            q,
 		Port:             port,
 		configService:    cfgService,
 		sessionService:   sessionSvc,
+		colmeiaService:   colmeiaSvc,
 		clients:          make(map[*websocket.Conn]bool),
 		pendingApprovals: make(map[string]bool),
 	}
@@ -158,6 +160,26 @@ func (s *Server) Start() error {
 			sessions.POST("/:id/dispatch", s.handleSessionDispatch)
 			sessions.GET("/:id/agents", s.handleListSessionAgents)
 			sessions.POST("/:id/documents", s.handleUploadDocument)
+		}
+
+		// Colmeia routes (colmeias persistentes com agentes e histórico)
+		colmeias := api.Group("/colmeias")
+		{
+			colmeias.GET("", s.handleListColmeias)
+			colmeias.POST("", s.handleCreateColmeia)
+			colmeias.GET("/:id", s.handleGetColmeia)
+			colmeias.PUT("/:id", s.handleUpdateColmeia)
+			colmeias.DELETE("/:id", s.handleDeleteColmeia)
+			colmeias.POST("/:id/dispatch", s.handleColmeiaDispatch)
+			colmeias.GET("/:id/historico", s.handleListHistoricoColmeia)
+
+			agentes := colmeias.Group("/:id/agentes")
+			{
+				agentes.GET("", s.handleListAgentesColmeia)
+				agentes.POST("", s.handleAddAgenteColmeia)
+				agentes.PUT("/:agentId", s.handleUpdateAgenteColmeia)
+				agentes.DELETE("/:agentId", s.handleRemoveAgenteColmeia)
+			}
 		}
 	}
 

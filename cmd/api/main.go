@@ -43,6 +43,11 @@ func main() {
 	agentRepo := repository.NewAgentRepository(db)
 	sessionService := service.NewSessionService(sessionRepo, agentRepo)
 
+	colmeiaRepo := repository.NewColmeiaRepository(db)
+	agenteColmeiaRepo := repository.NewAgenteColmeiaRepository(db)
+	historicoRepo := repository.NewHistoricoDespachoRepository(db)
+	colmeiaService := service.NewColmeiaService(colmeiaRepo, agenteColmeiaRepo, historicoRepo)
+
 	// ── Load config (optional at startup — setup may happen via API) ──────────
 	cfg, err := cfgService.Load()
 	if err != nil && !errors.Is(err, service.ErrNotConfigured) {
@@ -134,7 +139,7 @@ func main() {
 	}
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
-	server := api.NewServer(queen, *port, cfgService, sessionService)
+	server := api.NewServer(queen, *port, cfgService, sessionService, colmeiaService)
 
 	queen.LogFunc = func(msg string) {
 		server.Broadcast(api.WsMessage{Type: "status", Message: msg})
