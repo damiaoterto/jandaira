@@ -506,9 +506,17 @@ paths:
       tags: [Colmeias]
       summary: Send a message to a hive
       description: |
-        Dispatches a goal to the hive asynchronously. The last 3 completed
-        dispatches are injected as conversation context so the agents maintain
-        continuity across multiple interactions.
+        Dispatches a goal to the hive asynchronously. Before execution, the goal
+        is enriched with two layers of memory:
+
+        1. **DB history** — the last 3 completed dispatches for this hive are prepended
+           as conversation context so agents maintain continuity across interactions.
+        2. **Semantic memory** — if Honeycomb (vector DB) is enabled, the goal is
+           embedded and the top-3 most semantically similar past workflow results
+           (score > 0.7) are appended as additional context.
+
+        Each hive has its own isolated vector memory collection (keyed by hive ID),
+        so memory never leaks between hives.
 
         - `queen_managed: true` → Queen assembles a dynamic pipeline for this goal.
         - `queen_managed: false` → Uses the hive's pre-defined agents as the pipeline.

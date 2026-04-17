@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/damiaoterto/jandaira/internal/service"
@@ -15,7 +16,7 @@ import (
 
 // ─── Colmeia ───────────────────────────────────────────────────────────────────
 
-// handleListColmeias retorna todas as colmeias.
+// handleListColmeias returns all colmeias.
 //
 //	GET /api/colmeias
 func (s *Server) handleListColmeias(c *gin.Context) {
@@ -28,7 +29,7 @@ func (s *Server) handleListColmeias(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"colmeias": colmeias, "total": len(colmeias)})
 }
 
-// handleCreateColmeia cria uma nova colmeia persistente.
+// handleCreateColmeia creates a new persistent colmeia.
 //
 //	POST /api/colmeias
 //	Body: { "name": "Minha Colmeia", "description": "...", "queen_managed": true }
@@ -57,7 +58,7 @@ func (s *Server) handleCreateColmeia(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "Colmeia criada com sucesso.", "colmeia": colmeia})
 }
 
-// handleGetColmeia retorna uma colmeia com seus agentes.
+// handleGetColmeia returns a colmeia with its agents.
 //
 //	GET /api/colmeias/:id
 func (s *Server) handleGetColmeia(c *gin.Context) {
@@ -74,7 +75,7 @@ func (s *Server) handleGetColmeia(c *gin.Context) {
 	c.JSON(http.StatusOK, colmeia)
 }
 
-// handleUpdateColmeia atualiza os dados de uma colmeia.
+// handleUpdateColmeia updates colmeia fields.
 //
 //	PUT /api/colmeias/:id
 //	Body: { "name": "...", "description": "...", "queen_managed": false }
@@ -108,7 +109,7 @@ func (s *Server) handleUpdateColmeia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Colmeia atualizada.", "colmeia": colmeia})
 }
 
-// handleDeleteColmeia remove uma colmeia e todos os seus agentes e histórico.
+// handleDeleteColmeia removes a colmeia along with all its agents and history.
 //
 //	DELETE /api/colmeias/:id
 func (s *Server) handleDeleteColmeia(c *gin.Context) {
@@ -125,9 +126,9 @@ func (s *Server) handleDeleteColmeia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Colmeia, agentes e histórico removidos com sucesso."})
 }
 
-// ─── Agentes da Colmeia ────────────────────────────────────────────────────────
+// ─── Colmeia Agents ────────────────────────────────────────────────────────────
 
-// handleListAgentesColmeia lista os agentes de uma colmeia.
+// handleListAgentesColmeia lists agents of a colmeia.
 //
 //	GET /api/colmeias/:id/agentes
 func (s *Server) handleListAgentesColmeia(c *gin.Context) {
@@ -144,7 +145,7 @@ func (s *Server) handleListAgentesColmeia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"agentes": agentes, "total": len(agentes)})
 }
 
-// handleAddAgenteColmeia adiciona um agente pré-definido à colmeia.
+// handleAddAgenteColmeia adds a pre-defined agent to the colmeia.
 //
 //	POST /api/colmeias/:id/agentes
 //	Body: { "name": "Analista", "system_prompt": "...", "allowed_tools": ["web_search"] }
@@ -173,7 +174,7 @@ func (s *Server) handleAddAgenteColmeia(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "Agente adicionado à colmeia.", "agente": agente})
 }
 
-// handleUpdateAgenteColmeia edita o nome, prompt e ferramentas de um agente.
+// handleUpdateAgenteColmeia updates an agent's name, system prompt, and allowed tools.
 //
 //	PUT /api/colmeias/:id/agentes/:agentId
 //	Body: { "name": "...", "system_prompt": "...", "allowed_tools": [...] }
@@ -206,7 +207,7 @@ func (s *Server) handleUpdateAgenteColmeia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Agente atualizado.", "agente": agente})
 }
 
-// handleRemoveAgenteColmeia remove um agente da colmeia.
+// handleRemoveAgenteColmeia removes an agent from the colmeia.
 //
 //	DELETE /api/colmeias/:id/agentes/:agentId
 func (s *Server) handleRemoveAgenteColmeia(c *gin.Context) {
@@ -227,9 +228,9 @@ func (s *Server) handleRemoveAgenteColmeia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Agente removido da colmeia."})
 }
 
-// ─── Histórico ─────────────────────────────────────────────────────────────────
+// ─── History ───────────────────────────────────────────────────────────────────
 
-// handleListHistoricoColmeia retorna o histórico de despachos de uma colmeia.
+// handleListHistoricoColmeia returns the dispatch history of a colmeia.
 //
 //	GET /api/colmeias/:id/historico
 func (s *Server) handleListHistoricoColmeia(c *gin.Context) {
@@ -246,15 +247,15 @@ func (s *Server) handleListHistoricoColmeia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"historico": historico, "total": len(historico)})
 }
 
-// ─── Despacho ──────────────────────────────────────────────────────────────────
+// ─── Dispatch ──────────────────────────────────────────────────────────────────
 
-// handleColmeiaDispatch envia um objetivo para a colmeia e executa o workflow.
-// Se queen_managed=true, a rainha monta o enxame automaticamente.
-// Se queen_managed=false, usa os agentes pré-definidos pelo usuário.
-// O histórico de conversas anteriores é injetado como contexto para continuidade.
+// handleColmeiaDispatch sends a goal to the colmeia and executes the workflow.
+// If queen_managed=true, the queen assembles the swarm automatically.
+// If queen_managed=false, uses the agents pre-defined by the user.
+// Previous conversation history and semantic memory are injected as context.
 //
 //	POST /api/colmeias/:id/dispatch
-//	Body: { "goal": "O que você quer que a colmeia faça" }
+//	Body: { "goal": "What you want the colmeia to do" }
 func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 	colmeiaID := c.Param("id")
 
@@ -277,14 +278,14 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 		return
 	}
 
-	// Enriquecer o objetivo com o histórico anterior da colmeia.
+	// Enrich the goal with the colmeia's previous DB history.
 	enrichedGoal, err := s.colmeiaService.BuildGoalWithHistory(colmeia, req.Goal)
 	if err != nil {
 		log.Printf("WARN handleColmeiaDispatch BuildGoalWithHistory id=%s: %v", colmeiaID, err)
 		enrichedGoal = req.Goal
 	}
 
-	// Registrar o despacho no histórico (goal original, sem contexto injetado).
+	// Record the dispatch in history using the original goal (without injected context).
 	historico, err := s.colmeiaService.CreateHistorico(colmeiaID, req.Goal)
 	if err != nil {
 		log.Printf("ERROR handleColmeiaDispatch CreateHistorico id=%s: %v", colmeiaID, err)
@@ -297,13 +298,37 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 	if cfg != nil && cfg.MaxAgents > 0 {
 		maxWorkers = cfg.MaxAgents
 	}
-	groupID := "enxame-alfa"
-	if cfg != nil && cfg.SwarmName != "" {
-		groupID = cfg.SwarmName
+	// Each colmeia has its own vector memory collection scoped by its ID.
+	groupID := colmeiaID
+
+	// Enrich with semantic memory from Honeycomb (vector DB) if available.
+	if s.Queen.Honeycomb != nil {
+		memCtx, memCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer memCancel()
+
+		queryVec, err := s.Queen.Brain.Embed(memCtx, req.Goal)
+		if err == nil {
+			results, err := s.Queen.Honeycomb.Search(memCtx, colmeiaID, queryVec, 3)
+			if err == nil && len(results) > 0 {
+				var sb strings.Builder
+				sb.WriteString(enrichedGoal)
+				sb.WriteString("\n\n--- Relevant semantic memory for this colmeia ---\n")
+				for _, r := range results {
+					if content, ok := r.Metadata["content"]; ok {
+						preview := content
+						if len(preview) > 400 {
+							preview = preview[:400] + "..."
+						}
+						sb.WriteString(fmt.Sprintf("[score: %.2f]\n%s\n\n", r.Score, preview))
+					}
+				}
+				enrichedGoal = sb.String()
+			}
+		}
 	}
 
 	if colmeia.QueenManaged {
-		// Rainha monta o enxame automaticamente a partir do objetivo.
+		// Queen assembles the swarm automatically from the goal.
 		assembleCtx, assembleCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer assembleCancel()
 
@@ -353,7 +378,7 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 		return
 	}
 
-	// Agentes pré-definidos pelo usuário.
+	// User-defined agents.
 	if len(colmeia.Agentes) == 0 {
 		_ = s.colmeiaService.FailHistorico(historico.ID)
 		c.JSON(http.StatusBadRequest, gin.H{
