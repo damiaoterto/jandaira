@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/damiaoterto/jandaira/internal/service"
+	"github.com/damiaoterto/jandaira/internal/swarm"
 	"github.com/gin-gonic/gin"
 )
 
@@ -306,6 +307,19 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 	}
 	// Each colmeia has its own vector memory collection scoped by its ID.
 	groupID := colmeiaID
+
+	// Ensure the colmeia's group is registered in the hive before dispatching.
+	if !s.Queen.IsSwarmRegistered(groupID) {
+		maxNectar := 20000
+		if cfg != nil && cfg.MaxNectar > 0 {
+			maxNectar = cfg.MaxNectar
+		}
+		s.Queen.RegisterSwarm(groupID, swarm.Policy{
+			MaxNectar:        maxNectar,
+			Isolate:          cfg != nil && cfg.Isolated,
+			RequiresApproval: cfg != nil && cfg.Supervised,
+		})
+	}
 
 	// Enrich with semantic memory from Honeycomb (vector DB) if available.
 	if s.Queen.Honeycomb != nil {

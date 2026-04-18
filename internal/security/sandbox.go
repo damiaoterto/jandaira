@@ -53,6 +53,13 @@ func (c *Cell) WithVirtualFS(fs wazero.FSConfig) *Cell {
 	return c
 }
 
+// WithDirMount mounts a host directory at "/" inside the sandbox, allowing
+// the WASM module to read and write files relative to that directory.
+func (c *Cell) WithDirMount(hostDir string) *Cell {
+	fs := wazero.NewFSConfig().WithDirMount(hostDir, "/")
+	return c.WithVirtualFS(fs)
+}
+
 // WithOutput redirects the WASM stdout and stderr to the provided writers.
 func (c *Cell) WithOutput(stdout, stderr io.Writer) *Cell {
 	c.config = c.config.WithStdout(stdout).WithStderr(stderr)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/damiaoterto/jandaira/internal/security"
@@ -46,6 +47,11 @@ func (t *ExecuteCodeTool) Execute(ctx context.Context, argsJSON string) (string,
 		return "", err
 	}
 
+	// Log source for debugging agent-generated code issues.
+	if src, err := os.ReadFile(absFilename); err == nil {
+		fmt.Printf("[execute_code] source (%s):\n%s\n---\n", absFilename, src)
+	}
+
 	// 1. Compilar para WASI/WASM (Seguro, apenas usa o compilador)
 	wasmFilename := strings.TrimSuffix(absFilename, ".go") + ".wasm"
 
@@ -71,6 +77,11 @@ func (t *ExecuteCodeTool) Execute(ctx context.Context, argsJSON string) (string,
 		return "", fmt.Errorf("erro ao criar célula Wasm: %w", err)
 	}
 	defer cell.Close(ctx)
+
+	// Mount the directory containing the Go file so the WASM module can
+	// read and write JSON/text files for persistence (e.g. entries, state).
+	workDir := filepath.Dir(absFilename)
+	cell.WithDirMount(workDir)
 
 	// 4. Capturar Stdout e Stderr da Sandbox
 	var stdoutBuf, stderrBuf bytes.Buffer

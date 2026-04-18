@@ -81,6 +81,13 @@ func (q *Queen) RegisterSwarm(groupID string, p Policy) {
 	q.NectarUsage[groupID] = 0
 }
 
+func (q *Queen) IsSwarmRegistered(groupID string) bool {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	_, ok := q.Policies[groupID]
+	return ok
+}
+
 func (q *Queen) AssembleSwarm(ctx context.Context, goal string, maxWorkers int) ([]Specialist, error) {
 	q.logf("🧠 The Queen is consulting the manuals and designing the swarm architecture...")
 
