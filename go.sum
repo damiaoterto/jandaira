@@ -16,7 +16,7 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/amikos-tech/chroma-go v0.4.1 h1:WIcFTSjRgnVTYKWhgZYKaEUOjK6+BpGfVQRqdMIAfrw=
 github.com/amikos-tech/chroma-go v0.4.1/go.mod h1:q2kwMTUpWUP7ME3d7RjmVQlmBcJx9BKrrH7UhT91DRY=
-github.com/amikos-tech/chroma-go-local v0.3.4 h1:NUCaw0R+nNWd9h004MYCGY1LZGO7JjUWzXeYRbw1xSg=
+github.com/amikos-tech/chroma-go-local v0.3.4 h1:7yFDZuu9qRtRd/w6sZZqWwk/j1dcw3+Ly8MBuf3H+KI=
 github.com/amikos-tech/chroma-go-local v0.3.4/go.mod h1:U37BtxfJldfcpiya6nelgy+SdMesYOVub9kcnRknTrk=
 github.com/amikos-tech/pure-onnx v0.0.1 h1:FGMe+NyPOAlaMce+QFn2o+PkREXtHztAHgU1BOIqwz4=
 github.com/amikos-tech/pure-onnx v0.0.1/go.mod h1:pTYlj5NC8Q5vyhB0tYWliJOCPUuoIWm/8qsyit/84Y4=
@@ -270,6 +270,8 @@ golang.org/x/arch v0.25.0 h1:qnk6Ksugpi5Bz32947rkUgDt9/s5qvqDPl/gBKdMJLE=
 golang.org/x/arch v0.25.0/go.mod h1:0X+GdSIP+kL5wPmpK7sdkEVTt2XoYP0cSjQSbZBwOi8=
 golang.org/x/crypto v0.49.0 h1:+Ng2ULVvLHnJ/ZFEq4KdcDd/cfjrrjjNSXNzxg0Y4U4=
 golang.org/x/crypto v0.49.0/go.mod h1:ErX4dUh2UM+CFYiXZRTcMpEcN8b/1gxEuv3nODoYtCA=
+golang.org/x/image v0.25.0 h1:Y6uW6rH1y5y/LK1J8BPWZtr6yZ7hrsy6hFrXjgsc2fQ=
+golang.org/x/image v0.25.0/go.mod h1:tCAmOEGthTtkalusGp1g3xa2gke8J6c2N565dTyl9Rs=
 golang.org/x/net v0.52.0 h1:He/TN1l0e4mmR3QqHMT2Xab3Aj3L9qjbhRm78/6jrW0=
 golang.org/x/net v0.52.0/go.mod h1:R1MAz7uMZxVMualyPXb+VaqGSa3LIaUqk0eEt3w36Sw=
 golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
