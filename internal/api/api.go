@@ -50,6 +50,7 @@ type Server struct {
 	configService  service.ConfigService
 	sessionService service.SessionService
 	colmeiaService service.ColmeiaService
+	skillService   service.SkillService
 
 	// WebSocket client management
 	clients   map[*websocket.Conn]bool
@@ -60,13 +61,14 @@ type Server struct {
 	pendingApprovalsMu sync.Mutex
 }
 
-func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService) *Server {
+func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService, skillSvc service.SkillService) *Server {
 	s := &Server{
 		Queen:            q,
 		Port:             port,
 		configService:    cfgService,
 		sessionService:   sessionSvc,
 		colmeiaService:   colmeiaSvc,
+		skillService:     skillSvc,
 		clients:          make(map[*websocket.Conn]bool),
 		pendingApprovals: make(map[string]bool),
 	}
@@ -162,6 +164,16 @@ func (s *Server) Start() error {
 			sessions.POST("/:id/documents", s.handleUploadDocument)
 		}
 
+		// Skill routes (catálogo global de skills reutilizáveis)
+		skills := api.Group("/skills")
+		{
+			skills.GET("", s.handleListSkills)
+			skills.POST("", s.handleCreateSkill)
+			skills.GET("/:id", s.handleGetSkill)
+			skills.PUT("/:id", s.handleUpdateSkill)
+			skills.DELETE("/:id", s.handleDeleteSkill)
+		}
+
 		// Colmeia routes (colmeias persistentes com agentes e histórico)
 		colmeias := api.Group("/colmeias")
 		{
@@ -173,12 +185,22 @@ func (s *Server) Start() error {
 			colmeias.POST("/:id/dispatch", s.handleColmeiaDispatch)
 			colmeias.GET("/:id/historico", s.handleListHistoricoColmeia)
 
+			// Skills associadas à colmeia
+			colmeias.GET("/:id/skills", s.handleListColmeiaSkills)
+			colmeias.POST("/:id/skills", s.handleAttachSkillToColmeia)
+			colmeias.DELETE("/:id/skills/:skillId", s.handleDetachSkillFromColmeia)
+
 			agentes := colmeias.Group("/:id/agentes")
 			{
 				agentes.GET("", s.handleListAgentesColmeia)
 				agentes.POST("", s.handleAddAgenteColmeia)
 				agentes.PUT("/:agentId", s.handleUpdateAgenteColmeia)
 				agentes.DELETE("/:agentId", s.handleRemoveAgenteColmeia)
+
+				// Skills associadas ao agente
+				agentes.GET("/:agentId/skills", s.handleListAgenteSkills)
+				agentes.POST("/:agentId/skills", s.handleAttachSkillToAgente)
+				agentes.DELETE("/:agentId/skills/:skillId", s.handleDetachSkillFromAgente)
 			}
 		}
 	}

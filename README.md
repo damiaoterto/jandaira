@@ -21,6 +21,7 @@ Esse é exatamente o modelo de arquitetura que o projeto implementa:
 - A **Rainha (`Queen`)** não executa tarefas — ela orquestra, valida políticas e garante segurança.
 - As **Especialistas (`Specialists`)** são agentes leves com ferramentas restritas, executando em silos isolados.
 - O **Néctar** é a metáfora para o orçamento de tokens: cada agente consome néctar; quando acaba, a colmeia para.
+- As **Skills** são capacidades reutilizáveis (instruções + ferramentas) que podem ser associadas a colmeias ou agentes. Na rainha, enriquecem o meta-planejamento; nos agentes manuais, são mescladas no prompt e ferramentas no momento do despacho.
 - A **Colmeia (`Honeycomb`)** é o sistema de memória persistente em duas camadas: o `ShortTermMemory` mantém o contexto recente em RAM com expiração automática por TTL; o ChromaDB arquiva o conhecimento consolidado como vetores de longo prazo.
 - O **Grafo de Conhecimento (`KnowledgeGraph`)** mapeia relações entre agentes, tópicos e ferramentas — a Rainha consulta esse grafo antes de cada missão para reutilizar perfis de especialistas que já obtiveram sucesso em objetivos semelhantes.
 - O **Apicultor** é o humano no loop: pode aprovar ou bloquear qualquer ação da IA antes de ela ser executada.
@@ -349,6 +350,37 @@ queen.RegisterSwarm("meu-enxame", swarm.Policy{
 })
 ```
 
+### Skills — capacidades reutilizáveis
+
+Uma **skill** encapsula instruções e ferramentas para um domínio específico. Pode ser associada a uma colmeia ou a agentes individuais.
+
+```bash
+# Criar skill
+curl -X POST http://localhost:8080/api/skills \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Web Research",
+    "description": "Pesquisa na web usando DuckDuckGo",
+    "instructions": "Use web_search para coletar informações atualizadas antes de responder.",
+    "allowed_tools": ["web_search"]
+  }'
+
+# Associar à colmeia (rainha usa no meta-planejamento)
+curl -X POST http://localhost:8080/api/colmeias/{id}/skills \
+  -H "Content-Type: application/json" \
+  -d '{ "skill_id": 1 }'
+
+# Associar a agente pré-definido (mesclado no despacho)
+curl -X POST http://localhost:8080/api/colmeias/{id}/agentes/{agentId}/skills \
+  -H "Content-Type: application/json" \
+  -d '{ "skill_id": 1 }'
+```
+
+**Como funciona:**
+
+- **Queen-managed** (`queen_managed: true`): as skills da colmeia são injetadas como bloco `SKILLS DISPONÍVEIS` no prompt da Rainha. Ela decide quais especialistas recebem cada skill.
+- **Manual** (`queen_managed: false`): as skills de cada agente são mescladas automaticamente no `system_prompt` e nas ferramentas permitidas no momento do despacho.
+
 ### Ferramentas disponíveis
 
 | Ferramenta       | Descrição                                                                 |
@@ -402,6 +434,22 @@ O servidor HTTP é iniciado com `./jandaira-api --port 8080` e expõe as seguint
 | `POST`   | `/api/sessions/:id/dispatch`   | Despacha workflow para a sessão                |
 | `GET`    | `/api/sessions/:id/agents`     | Lista agentes da sessão                        |
 | `POST`   | `/api/sessions/:id/documents`  | Faz upload e indexa documento                  |
+
+#### Skills
+
+| Método   | Rota                                              | Descrição                                               |
+| -------- | ------------------------------------------------- | ------------------------------------------------------- |
+| `GET`    | `/api/skills`                                     | Lista todas as skills                                   |
+| `POST`   | `/api/skills`                                     | Cria skill                                              |
+| `GET`    | `/api/skills/:id`                                 | Busca skill                                             |
+| `PUT`    | `/api/skills/:id`                                 | Atualiza skill                                          |
+| `DELETE` | `/api/skills/:id`                                 | Remove skill (desassocia de todas as colmeias e agentes)|
+| `GET`    | `/api/colmeias/:id/skills`                        | Lista skills da colmeia                                 |
+| `POST`   | `/api/colmeias/:id/skills`                        | Associa skill à colmeia (`{ "skill_id": 1 }`)           |
+| `DELETE` | `/api/colmeias/:id/skills/:skillId`               | Remove associação skill-colmeia                         |
+| `GET`    | `/api/colmeias/:id/agentes/:agentId/skills`       | Lista skills do agente                                  |
+| `POST`   | `/api/colmeias/:id/agentes/:agentId/skills`       | Associa skill ao agente                                 |
+| `DELETE` | `/api/colmeias/:id/agentes/:agentId/skills/:skillId` | Remove associação skill-agente                       |
 
 #### Colmeias Persistentes
 

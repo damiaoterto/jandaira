@@ -10,6 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ### Added
 
+- **Gerenciamento de Skills** (`internal/model/skill.go`, `internal/repository/skill.go`, `internal/service/skill.go`, `internal/api/skill_handler.go`): skills são capacidades reutilizáveis que encapsulam instruções e ferramentas para um domínio específico. Podem ser associadas a colmeias ou a agentes individuais via tabelas many-to-many (`colmeia_skills`, `agente_colmeia_skills`).
+  - **`Skill`**: entidade global com `name`, `description`, `instructions` (injetadas no system prompt) e `allowed_tools` (JSON).
+  - **Queen-managed**: skills da colmeia são injetadas como bloco `SKILLS DISPONÍVEIS` no prompt de meta-planejamento da Rainha antes de cada `AssembleSwarm`. A Rainha decide quais especialistas recebem cada skill.
+  - **Manual** (`queen_managed=false`): skills dos agentes são mescladas em `BuildSpecialists` — `instructions` adicionadas ao `SystemPrompt` e `allowed_tools` unidos sem duplicatas.
+  - **Memória de longo prazo confirmada**: `LocalVectorDB.Search` já filtrava `score > 0.7`; `handleColmeiaDispatch` injeta histórico DB (últimos 3) + resultados semânticos Honeycomb antes de cada despacho.
+  - **Novas rotas REST**: `GET/POST /api/skills`, `GET/PUT/DELETE /api/skills/:id`, `GET/POST /api/colmeias/:id/skills`, `DELETE /api/colmeias/:id/skills/:skillId`, `GET/POST /api/colmeias/:id/agentes/:agentId/skills`, `DELETE /api/colmeias/:id/agentes/:agentId/skills/:skillId`.
+  - **Docs atualizados**: `openapi.yaml`, `api-integration.md`, `app-flow.md`, `README.md`.
+
 - **Colmeias Persistentes** (`internal/model/colmeia.go`, `internal/repository/colmeia.go`, `internal/service/colmeia.go`, `internal/api/colmeia_handler.go`): colmeias nomeadas e persistentes com agentes pré-definidos pelo usuário ou gerenciados pela rainha. Cada colmeia mantém histórico de despachos (`HistoricoDespacho`) que é injetado como contexto nas conversas seguintes, permitindo continuidade entre múltiplas interações com a mesma colmeia.
   - **`Colmeia`**: entidade persistente com `name`, `description` e flag `queen_managed`.
   - **`AgenteColmeia`**: agente persistente com `name`, `system_prompt` e `allowed_tools` (JSON) — totalmente editáveis pelo usuário via API.

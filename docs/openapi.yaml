@@ -31,6 +31,11 @@ tags:
       Persistent named hives with reusable agents and conversation history.
       A hive can be dispatched multiple times; previous results are injected as context.
       Agents can be pre-defined by the user (queen_managed=false) or assembled automatically by the Queen (queen_managed=true).
+  - name: Skills
+    description: |
+      Reusable capability units. A skill encapsulates instructions and allowed tools for a domain.
+      Skills can be attached to a hive (used by the Queen during swarm assembly) or to individual
+      pre-defined agents (merged into their system prompt and allowed tools at dispatch time).
   - name: Documents
     description: Upload and index documents into the session's vector memory (ChromaDB)
   - name: Catalog
@@ -700,6 +705,293 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/skills:
+    get:
+      tags: [Skills]
+      summary: List all skills
+      responses:
+        '200':
+          description: Skill list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skills:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Skill'
+                  total:
+                    type: integer
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+
+    post:
+      tags: [Skills]
+      summary: Create a skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertSkillRequest'
+            example:
+              name: "Web Research"
+              description: "Pesquisa na web usando DuckDuckGo"
+              instructions: "Use web_search para coletar informações atualizadas antes de responder."
+              allowed_tools: ["web_search"]
+      responses:
+        '201':
+          description: Skill created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  skill:
+                    $ref: '#/components/schemas/Skill'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/skills/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SkillID'
+
+    get:
+      tags: [Skills]
+      summary: Get a skill
+      responses:
+        '200':
+          description: Skill record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+
+    put:
+      tags: [Skills]
+      summary: Update a skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertSkillRequest'
+      responses:
+        '200':
+          description: Skill updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  skill:
+                    $ref: '#/components/schemas/Skill'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [Skills]
+      summary: Delete a skill
+      description: Removes the skill and its associations from all hives and agents.
+      responses:
+        '200':
+          description: Skill deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/skills:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+
+    get:
+      tags: [Skills]
+      summary: List skills attached to a hive
+      responses:
+        '200':
+          description: Skill list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skills:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Skill'
+                  total:
+                    type: integer
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [Skills]
+      summary: Attach a skill to a hive
+      description: |
+        Attaches an existing skill to the hive. On the next `queen_managed` dispatch, the Queen
+        receives a `SKILLS DISPONÍVEIS` block in its meta-planning prompt and can assign skills
+        to each specialist it creates.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [skill_id]
+              properties:
+                skill_id:
+                  type: integer
+                  example: 1
+      responses:
+        '200':
+          description: Skill attached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/skills/{skillId}:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+      - $ref: '#/components/parameters/SkillID'
+
+    delete:
+      tags: [Skills]
+      summary: Detach a skill from a hive
+      responses:
+        '200':
+          description: Skill detached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/agentes/{agentId}/skills:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+      - $ref: '#/components/parameters/AgenteID'
+
+    get:
+      tags: [Skills]
+      summary: List skills attached to a pre-defined agent
+      responses:
+        '200':
+          description: Skill list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skills:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Skill'
+                  total:
+                    type: integer
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [Skills]
+      summary: Attach a skill to a pre-defined agent
+      description: |
+        Attaches a skill to a specific pre-defined agent (`queen_managed=false`). At dispatch time
+        the skill's `instructions` are appended to the agent's `system_prompt` and its
+        `allowed_tools` are merged into the agent's tool list (deduplication applied).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [skill_id]
+              properties:
+                skill_id:
+                  type: integer
+                  example: 1
+      responses:
+        '200':
+          description: Skill attached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/agentes/{agentId}/skills/{skillId}:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+      - $ref: '#/components/parameters/AgenteID'
+      - $ref: '#/components/parameters/SkillID'
+
+    delete:
+      tags: [Skills]
+      summary: Detach a skill from a pre-defined agent
+      responses:
+        '200':
+          description: Skill detached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/sessions/{id}/documents:
     post:
       tags: [Sessions]
@@ -1177,6 +1469,55 @@ components:
           enum: [queen_managed, user_defined]
           description: Whether the Queen assembled agents or pre-defined agents were used.
 
+    Skill:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "Web Research"
+        description:
+          type: string
+          example: "Pesquisa na web usando DuckDuckGo"
+        instructions:
+          type: string
+          description: |
+            Extra instructions injected into the agent's system prompt when this skill is active.
+            For queen_managed hives, the Queen reads these during meta-planning.
+            For pre-defined agents, these are appended to the agent's system_prompt at dispatch time.
+          example: "Use web_search para coletar informações atualizadas antes de responder."
+        allowed_tools:
+          type: string
+          description: JSON array of tool names this skill requires.
+          example: '["web_search"]'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UpsertSkillRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: "Web Research"
+        description:
+          type: string
+          example: "Pesquisa na web usando DuckDuckGo"
+        instructions:
+          type: string
+          example: "Use web_search para coletar informações atualizadas antes de responder."
+        allowed_tools:
+          type: array
+          items:
+            type: string
+          example: ["web_search"]
+
     MessageResponse:
       type: object
       properties:
@@ -1215,6 +1556,15 @@ components:
       in: path
       required: true
       description: AgenteColmeia integer ID
+      schema:
+        type: integer
+      example: 1
+
+    SkillID:
+      name: skillId
+      in: path
+      required: true
+      description: Skill integer ID
       schema:
         type: integer
       example: 1

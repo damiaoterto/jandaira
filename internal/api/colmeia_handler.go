@@ -285,6 +285,12 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 		enrichedGoal = req.Goal
 	}
 
+	// Prepend skills context so the Queen (or pre-defined agents) are aware of
+	// available skills for this mission.
+	if skillsCtx := s.colmeiaService.BuildSkillsContext(colmeia); skillsCtx != "" {
+		enrichedGoal = skillsCtx + "\n\n" + enrichedGoal
+	}
+
 	// Record the dispatch in history using the original goal (without injected context).
 	historico, err := s.colmeiaService.CreateHistorico(colmeiaID, req.Goal)
 	if err != nil {

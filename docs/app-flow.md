@@ -38,6 +38,32 @@ Jandaira is an AI agent swarm orchestration system. A **Queen** coordinates a pi
 
 ---
 
+## Skill Architecture
+
+Skills are reusable capability units stored in the `skills` table. They can be attached to hives or individual agents via many-to-many junction tables (`colmeia_skills`, `agente_colmeia_skills`).
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                        Skill Registry                          │
+│  id | name           | instructions            | allowed_tools │
+│  1  | Web Research   | Use web_search to...    | [web_search]  │
+│  2  | Code Analysis  | Read files and analyze  | [read_file]   │
+└────────────────────────────────────────────────────────────────┘
+         │  many2many              │  many2many
+         ▼                         ▼
+   colmeia_skills          agente_colmeia_skills
+   (colmeia ↔ skill)       (agente ↔ skill)
+```
+
+**At dispatch time:**
+
+| Hive type        | Skills source          | How injected |
+|------------------|------------------------|--------------|
+| `queen_managed`  | `colmeia.Skills`       | `SKILLS DISPONÍVEIS` block prepended to enrichedGoal → Queen reads during meta-planning |
+| `user_defined`   | `agente.Skills`        | `instructions` appended to `SystemPrompt`; `allowed_tools` merged (deduplication) in `BuildSpecialists` |
+
+---
+
 ## Startup Flow
 
 ```
@@ -181,6 +207,32 @@ POST /api/sessions/:id/dispatch { goal? }
 
 on WS result  →  sessionService.CompleteSession(id, result)
 on WS error   →  sessionService.FailSession(id)
+```
+
+---
+
+## Skill-Aware Colmeia Dispatch
+
+```
+POST /api/colmeias/:id/dispatch { goal }
+  │
+  ├── 1. Load colmeia + agents + skills from DB
+  │        (Preload: Colmeia.Skills, Agentes, Agentes.Skills)
+  │
+  ├── 2. BuildGoalWithHistory → inject last 3 completed dispatches
+  │
+  ├── 3. BuildSkillsContext (if colmeia.Skills not empty)
+  │        → prepend "SKILLS DISPONÍVEIS..." block to enrichedGoal
+  │
+  ├── 4. Honeycomb semantic search → append top-3 relevant past results
+  │
+  ├── 5. queen_managed=true  → Queen.AssembleSwarm(enrichedGoal)
+  │        Queen reads SKILLS block and assigns skill instructions/tools
+  │        to each specialist it creates
+  │
+  └── 6. queen_managed=false → BuildSpecialists(colmeia)
+           For each agent: merge agent.Skills[i].Instructions into SystemPrompt
+                           merge agent.Skills[i].AllowedTools into AllowedTools
 ```
 
 ---

@@ -40,6 +40,9 @@ type ColmeiaService interface {
 	// Helpers para despacho
 	BuildSpecialists(colmeia *model.Colmeia) []swarm.Specialist
 	BuildGoalWithHistory(colmeia *model.Colmeia, goal string) (string, error)
+	// BuildSkillsContext gera um bloco de texto descrevendo as skills da colmeia
+	// para injetar no prompt da rainha durante o AssembleSwarm.
+	BuildSkillsContext(colmeia *model.Colmeia) string
 }
 
 type colmeiaService struct {
@@ -229,16 +232,63 @@ func (s *colmeiaService) ListHistorico(colmeiaID string) ([]model.HistoricoDespa
 
 // BuildSpecialists converte os AgenteColmeia da colmeia em swarm.Specialist.
 // Usado quando QueenManaged=false (agentes definidos pelo usuário).
+// Skills do agente são mescladas: instruções adicionadas ao SystemPrompt e
+// ferramentas permitidas unidas sem duplicatas.
 func (s *colmeiaService) BuildSpecialists(colmeia *model.Colmeia) []swarm.Specialist {
 	specialists := make([]swarm.Specialist, 0, len(colmeia.Agentes))
 	for _, a := range colmeia.Agentes {
+		systemPrompt := a.SystemPrompt
+		allowedTools := a.GetAllowedTools()
+
+		for _, skill := range a.Skills {
+			if skill.Instructions != "" {
+				systemPrompt += fmt.Sprintf("\n\n[SKILL: %s]\n%s", skill.Name, skill.Instructions)
+			}
+			for _, t := range skill.GetAllowedTools() {
+				allowedTools = appendIfMissing(allowedTools, t)
+			}
+		}
+
 		specialists = append(specialists, swarm.Specialist{
 			Name:         a.Name,
-			SystemPrompt: a.SystemPrompt,
-			AllowedTools: a.GetAllowedTools(),
+			SystemPrompt: systemPrompt,
+			AllowedTools: allowedTools,
 		})
 	}
 	return specialists
+}
+
+// BuildSkillsContext gera um bloco de texto com as skills da colmeia para
+// injetar no prompt da rainha durante o AssembleSwarm (queen_managed=true).
+func (s *colmeiaService) BuildSkillsContext(colmeia *model.Colmeia) string {
+	if len(colmeia.Skills) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("SKILLS DISPONÍVEIS PARA ESTA COLMEIA (atribua as relevantes aos especialistas):\n")
+	for _, skill := range colmeia.Skills {
+		sb.WriteString(fmt.Sprintf("- \"%s\": %s", skill.Name, skill.Description))
+		if skill.Instructions != "" {
+			instr := truncate(skill.Instructions, 300)
+			sb.WriteString(fmt.Sprintf(". Instruções: %s", instr))
+		}
+		tools := skill.GetAllowedTools()
+		if len(tools) > 0 {
+			sb.WriteString(fmt.Sprintf(". Ferramentas: [%s]", strings.Join(tools, ", ")))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+// appendIfMissing adiciona t à slice somente se ainda não estiver presente.
+func appendIfMissing(slice []string, t string) []string {
+	for _, v := range slice {
+		if v == t {
+			return slice
+		}
+	}
+	return append(slice, t)
 }
 
 // BuildGoalWithHistory enriquece o objetivo com o histórico recente da colmeia,

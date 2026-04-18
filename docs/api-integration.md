@@ -274,6 +274,134 @@ Fires a `status` WS event on success: `📄 Document 'X' indexed: N/M chunks sav
 
 ---
 
+## Skills
+
+Skills are reusable capability units stored in a global registry. Each skill encapsulates:
+- **instructions** — extra system-prompt text injected into agents that hold this skill
+- **allowed_tools** — tools the skill requires (merged into the agent's tool list)
+
+A skill can be attached to a **hive** (used by the Queen during `queen_managed` assembly) or to a **pre-defined agent** (merged at dispatch time).
+
+### `GET /api/skills`
+
+Returns all skills.
+
+**Response — `200`**
+```json
+{
+  "skills": [
+    { "id": 1, "name": "Web Research", "description": "...", "instructions": "...", "allowed_tools": "[\"web_search\"]", ... }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### `POST /api/skills`
+
+Creates a skill.
+
+**Request**
+```json
+{
+  "name": "Web Research",
+  "description": "Pesquisa na web usando DuckDuckGo",
+  "instructions": "Use web_search para coletar informações atualizadas antes de responder.",
+  "allowed_tools": ["web_search"]
+}
+```
+
+| Field           | Required | Notes |
+|-----------------|:--------:|-------|
+| `name`          | yes      | Unique name |
+| `description`   | no       | Human-readable summary |
+| `instructions`  | no       | Injected into agent system prompt |
+| `allowed_tools` | no       | Array of tool names from `GET /api/tools` |
+
+**Response — `201`**
+```json
+{ "message": "Skill criada com sucesso.", "skill": { "id": 1, ... } }
+```
+
+---
+
+### `GET /api/skills/:id` · `PUT /api/skills/:id` · `DELETE /api/skills/:id`
+
+Standard CRUD. `PUT` accepts the same body as `POST`. `DELETE` removes skill associations from all hives and agents.
+
+---
+
+### `GET /api/colmeias/:id/skills`
+
+Lists skills attached to a hive.
+
+---
+
+### `POST /api/colmeias/:id/skills`
+
+Attaches an existing skill to a hive.
+
+**Request**
+```json
+{ "skill_id": 1 }
+```
+
+On the next `queen_managed` dispatch the Queen receives a `SKILLS DISPONÍVEIS` block in its meta-planning prompt and can assign skills to each specialist.
+
+---
+
+### `DELETE /api/colmeias/:id/skills/:skillId`
+
+Detaches a skill from a hive.
+
+---
+
+### `GET /api/colmeias/:id/agentes/:agentId/skills`
+
+Lists skills attached to a pre-defined agent.
+
+---
+
+### `POST /api/colmeias/:id/agentes/:agentId/skills`
+
+Attaches a skill to a specific pre-defined agent (`queen_managed=false`). At dispatch time:
+- `instructions` are appended to the agent's `system_prompt`
+- `allowed_tools` are merged into the agent's tool list (no duplicates)
+
+**Request**
+```json
+{ "skill_id": 1 }
+```
+
+---
+
+### `DELETE /api/colmeias/:id/agentes/:agentId/skills/:skillId`
+
+Detaches a skill from a pre-defined agent.
+
+---
+
+### Typical skill workflow
+
+```
+# 1. Create skills
+POST /api/skills  { "name": "Web Research", "allowed_tools": ["web_search"], ... }
+POST /api/skills  { "name": "Code Analysis", "allowed_tools": ["read_file", "list_directory"], ... }
+
+# 2a. Attach to a queen_managed hive (Queen decides which specialist uses each skill)
+POST /api/colmeias/:id/skills  { "skill_id": 1 }
+POST /api/colmeias/:id/skills  { "skill_id": 2 }
+
+# 2b. Attach to a specific pre-defined agent (merged at dispatch time)
+POST /api/colmeias/:id/agentes/:agentId/skills  { "skill_id": 1 }
+
+# 3. Dispatch as usual — skills are injected automatically
+POST /api/colmeias/:id/dispatch  { "goal": "..." }
+```
+
+---
+
 ## Colmeias (Persistent Hives)
 
 Reusable hives with persistent agents and full conversation memory. Each dispatch automatically enriches the goal with:

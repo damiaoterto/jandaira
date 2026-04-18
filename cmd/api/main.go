@@ -28,14 +28,12 @@ func main() {
 
 	ctx := context.Background()
 
-	// ── Database ──────────────────────────────────────────────────────────────
 	db, err := database.Open(config.GetDefaultPath())
 	if err != nil {
 		fmt.Printf("Erro ao abrir banco de dados: %v\n", err)
 		os.Exit(1)
 	}
 
-	// ── Repository + Service ──────────────────────────────────────────────────
 	cfgRepo := repository.NewConfigRepository(db)
 	cfgService := service.NewConfigService(cfgRepo)
 
@@ -48,7 +46,9 @@ func main() {
 	historicoRepo := repository.NewHistoricoDespachoRepository(db)
 	colmeiaService := service.NewColmeiaService(colmeiaRepo, agenteColmeiaRepo, historicoRepo)
 
-	// ── Load config (optional at startup — setup may happen via API) ──────────
+	skillRepo := repository.NewSkillRepository(db)
+	skillService := service.NewSkillService(skillRepo)
+
 	cfg, err := cfgService.Load()
 	if err != nil && !errors.Is(err, service.ErrNotConfigured) {
 		fmt.Printf("Erro ao carregar configuração: %v\n", err)
@@ -66,7 +66,6 @@ func main() {
 		swarmName = cfg.SwarmName
 	}
 
-	// ── Brain (vector DB) ─────────────────────────────────────────────────────
 	chromaURL := os.Getenv("CHROMA_URL")
 	if chromaURL == "" {
 		chromaURL = "http://localhost:8000"
@@ -78,7 +77,6 @@ func main() {
 	}
 	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)
 
-	// ── Knowledge Graph ───────────────────────────────────────────────────────
 	graphPath := filepath.Join(filepath.Dir(config.GetDefaultPath()), "knowledge_graph.json")
 	knowledgeGraph, err := brain.NewLocalKnowledgeGraph(graphPath)
 	if err != nil {
@@ -86,7 +84,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ── API key ───────────────────────────────────────────────────────────────
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
 		repoDir := security.GetDefaultVaultDir()
@@ -108,7 +105,6 @@ func main() {
 		modelType = cfg.Model
 	}
 
-	// ── Swarm ─────────────────────────────────────────────────────────────────
 	openAIBrain := brain.NewOpenAIBrain(apiKey, modelType)
 	groupQueue := queue.NewGroupQueue(3)
 	queen := swarm.NewQueen(groupQueue, openAIBrain, honeycomb)
@@ -116,7 +112,6 @@ func main() {
 
 	queen.EquipTool(&tool.ListDirectoryTool{})
 	queen.EquipTool(&tool.ReadFileTool{})
-	// queen.EquipTool(&tool.WriteFileTool{})
 	queen.EquipTool(&tool.CreateDirectoryTool{})
 	queen.EquipTool(&tool.ExecuteCodeTool{})
 	queen.EquipTool(&tool.SearchMemoryTool{Brain: openAIBrain, Honeycomb: honeycomb, Collection: swarmName})
@@ -130,7 +125,6 @@ func main() {
 			RequiresApproval: cfg.Supervised,
 		})
 	} else {
-		// Default policy — will be overwritten when /api/setup is called.
 		queen.RegisterSwarm(swarmName, swarm.Policy{
 			MaxNectar:        20000,
 			Isolate:          true,
@@ -138,8 +132,7 @@ func main() {
 		})
 	}
 
-	// ── HTTP server ───────────────────────────────────────────────────────────
-	server := api.NewServer(queen, *port, cfgService, sessionService, colmeiaService)
+	server := api.NewServer(queen, *port, cfgService, sessionService, colmeiaService, skillService)
 
 	queen.LogFunc = func(msg string) {
 		server.Broadcast(api.WsMessage{Type: "status", Message: msg})

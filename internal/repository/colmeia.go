@@ -49,9 +49,13 @@ func (r *colmeiaRepository) FindByID(id string) (*model.Colmeia, error) {
 
 func (r *colmeiaRepository) FindByIDWithAgentes(id string) (*model.Colmeia, error) {
 	var c model.Colmeia
-	if err := r.db.Preload("Agentes", func(db *gorm.DB) *gorm.DB {
-		return db.Order("id ASC")
-	}).First(&c, "id = ?", id).Error; err != nil {
+	if err := r.db.
+		Preload("Skills").
+		Preload("Agentes", func(db *gorm.DB) *gorm.DB {
+			return db.Order("id ASC")
+		}).
+		Preload("Agentes.Skills").
+		First(&c, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrColmeiaNotFound
 		}

@@ -33,6 +33,7 @@ func Open(dbPath string) (*gorm.DB, error) {
 		&model.AppConfig{},
 		&model.Session{},
 		&model.Agent{},
+		&model.Skill{},
 		&model.Colmeia{},
 		&model.AgenteColmeia{},
 		&model.HistoricoDespacho{},

@@ -25,6 +25,7 @@ type Colmeia struct {
 	UpdatedAt    time.Time           `                                                            json:"updated_at"`
 	Agentes      []AgenteColmeia     `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"agentes,omitempty"`
 	Historico    []HistoricoDespacho `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"historico,omitempty"`
+	Skills       []Skill             `gorm:"many2many:colmeia_skills;"                            json:"skills,omitempty"`
 }
 
 func (c *Colmeia) BeforeCreate(_ *gorm.DB) error {
@@ -46,6 +47,7 @@ type AgenteColmeia struct {
 	AllowedTools string    `gorm:"type:text;default:'[]'"           json:"allowed_tools"` // JSON array
 	CreatedAt    time.Time `                                         json:"created_at"`
 	UpdatedAt    time.Time `                                         json:"updated_at"`
+	Skills       []Skill   `gorm:"many2many:agente_colmeia_skills;" json:"skills,omitempty"`
 }
 
 func (AgenteColmeia) TableName() string { return "agentes_colmeia" }
