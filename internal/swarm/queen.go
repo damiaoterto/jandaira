@@ -307,6 +307,15 @@ func (q *Queen) runSpecialist(ctx context.Context, spec Specialist, encryptedTas
 	}
 
 	for i := 0; i < 5; i++ {
+		q.mu.RLock()
+		usedNectar := q.NectarUsage[spec.Name]
+		q.mu.RUnlock()
+
+		if p.MaxNectar > 0 && usedNectar >= p.MaxNectar {
+			q.logf("⚠️  [%s] Nectar budget exhausted (%d/%d tokens). Requesting final summary.", spec.Name, usedNectar, p.MaxNectar)
+			break
+		}
+
 		response, toolCalls, report, err := q.Brain.Chat(ctx, messages, availableTools)
 		if err != nil {
 			q.logf("❌ [%s] Brain.Chat failed (iteration %d): %v", spec.Name, i, err)

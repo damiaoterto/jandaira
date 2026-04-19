@@ -85,38 +85,87 @@ func main() {
 		os.Exit(1)
 	}
 
-	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	if apiKey == "" {
-		repoDir := security.GetDefaultVaultDir()
-		if v, err := security.InitVault(repoDir); err == nil {
-			if key, err := v.GetSecret("OPENAI_API_KEY"); err == nil {
-				apiKey = strings.TrimSpace(key)
-			}
-		}
-	}
-	if apiKey != "" {
-		os.Setenv("OPENAI_API_KEY", apiKey)
-	} else {
-		fmt.Println(i18n.T("warn_api_key_not_set"))
-		apiKey = "sk-mock-key-for-testing"
+	provider := "openai"
+	if cfg != nil && cfg.Provider != "" {
+		provider = strings.ToLower(cfg.Provider)
 	}
 
 	modelType := "gpt-4o-mini"
 	if cfg != nil && cfg.Model != "" {
 		modelType = cfg.Model
+	} else if provider == "anthropic" {
+		modelType = "claude-sonnet-4-6"
 	}
 
-	openAIBrain := brain.NewOpenAIBrain(apiKey, modelType)
+	var activeBrain brain.Brain
+	var embedBrain brain.Brain // always OpenAI for embeddings when available
+
+	repoDir := security.GetDefaultVaultDir()
+	vault, _ := security.InitVault(repoDir)
+
+	switch provider {
+	case "anthropic":
+		apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
+		if apiKey == "" && vault != nil {
+			if key, err := vault.GetSecret("ANTHROPIC_API_KEY"); err == nil {
+				apiKey = strings.TrimSpace(key)
+			}
+		}
+		if apiKey != "" {
+			os.Setenv("ANTHROPIC_API_KEY", apiKey)
+		} else {
+			fmt.Println(i18n.T("warn_api_key_not_set"))
+			apiKey = "sk-mock-key-for-testing"
+		}
+		ab := brain.NewAnthropicBrain(apiKey, modelType)
+		if cfg != nil && cfg.MaxNectar > 0 {
+			ab.MaxTokens = cfg.MaxNectar
+		}
+		activeBrain = ab
+
+		// Attempt to load an OpenAI key for embeddings only.
+		oaiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+		if oaiKey == "" && vault != nil {
+			if key, err := vault.GetSecret("OPENAI_API_KEY"); err == nil {
+				oaiKey = strings.TrimSpace(key)
+			}
+		}
+		if oaiKey != "" {
+			embedBrain = brain.NewOpenAIBrain(oaiKey, "gpt-4o-mini")
+		} else {
+			embedBrain = activeBrain
+		}
+
+	default:
+		apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+		if apiKey == "" && vault != nil {
+			if key, err := vault.GetSecret("OPENAI_API_KEY"); err == nil {
+				apiKey = strings.TrimSpace(key)
+			}
+		}
+		if apiKey != "" {
+			os.Setenv("OPENAI_API_KEY", apiKey)
+		} else {
+			fmt.Println(i18n.T("warn_api_key_not_set"))
+			apiKey = "sk-mock-key-for-testing"
+		}
+		oaiBrain := brain.NewOpenAIBrain(apiKey, modelType)
+		if cfg != nil && cfg.MaxNectar > 0 {
+			oaiBrain.MaxTokens = cfg.MaxNectar
+		}
+		activeBrain = oaiBrain
+		embedBrain = oaiBrain
+	}
+
 	groupQueue := queue.NewGroupQueue(3)
-	queen := swarm.NewQueen(groupQueue, openAIBrain, honeycomb)
+	queen := swarm.NewQueen(groupQueue, activeBrain, honeycomb)
 	queen.Graph = knowledgeGraph
 
 	queen.EquipTool(&tool.ListDirectoryTool{})
 	queen.EquipTool(&tool.ReadFileTool{})
-	queen.EquipTool(&tool.CreateDirectoryTool{})
 	queen.EquipTool(&tool.ExecuteCodeTool{})
-	queen.EquipTool(&tool.SearchMemoryTool{Brain: openAIBrain, Honeycomb: honeycomb, Collection: swarmName})
-	queen.EquipTool(&tool.StoreMemoryTool{Brain: openAIBrain, Honeycomb: honeycomb, Collection: swarmName})
+	queen.EquipTool(&tool.SearchMemoryTool{Brain: embedBrain, Honeycomb: honeycomb, Collection: swarmName})
+	queen.EquipTool(&tool.StoreMemoryTool{Brain: embedBrain, Honeycomb: honeycomb, Collection: swarmName})
 	queen.EquipTool(&tool.WebSearchTool{})
 
 	if cfg != nil {

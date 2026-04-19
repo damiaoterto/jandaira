@@ -148,6 +148,8 @@ func (s *Server) Start() error {
 	api.Use(s.setupMiddleware())
 	{
 		api.POST("/setup", s.handleSetup)
+		api.GET("/config", s.handleGetConfig)
+		api.PUT("/config", s.handleUpdateConfig)
 		api.POST("/dispatch", s.handleDispatch)
 		api.GET("/tools", s.handleListTools)
 		api.GET("/agents", s.handleListAgents)

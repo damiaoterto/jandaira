@@ -11,9 +11,10 @@ import (
 )
 
 type OpenAIBrain struct {
-	APIKey string
-	Model  string
-	Client *http.Client
+	APIKey    string
+	Model     string
+	MaxTokens int // 0 = let the API use its default
+	Client    *http.Client
 }
 
 func NewOpenAIBrain(apiKey string, model string) *OpenAIBrain {
@@ -70,6 +71,9 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message, tools []Tool
 	payload := map[string]interface{}{
 		"model":    b.Model,
 		"messages": formattedMessages,
+	}
+	if b.MaxTokens > 0 {
+		payload["max_completion_tokens"] = b.MaxTokens
 	}
 
 	if len(tools) > 0 {
@@ -213,6 +217,9 @@ func (b *OpenAIBrain) ChatJSON(ctx context.Context, messages []Message, schema m
 			"type":        "json_schema",
 			"json_schema": schema,
 		},
+	}
+	if b.MaxTokens > 0 {
+		payload["max_completion_tokens"] = b.MaxTokens
 	}
 
 	jsonData, _ := json.Marshal(payload)

@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/model"
@@ -41,8 +42,18 @@ func (s *Server) handleSetup(c *gin.Context) {
 	if cfg.MaxNectar == 0 {
 		cfg.MaxNectar = 20000
 	}
+	if cfg.Provider == "" {
+		cfg.Provider = "openai"
+	}
+	cfg.Provider = strings.ToLower(cfg.Provider)
+
 	if cfg.Model == "" {
-		cfg.Model = "gpt-4o-mini"
+		switch cfg.Provider {
+		case "anthropic":
+			cfg.Model = "claude-sonnet-4-6"
+		default:
+			cfg.Model = "gpt-4o-mini"
+		}
 	}
 	if cfg.SwarmName == "" {
 		cfg.SwarmName = "enxame-alfa"
@@ -55,12 +66,27 @@ func (s *Server) handleSetup(c *gin.Context) {
 
 	if rawReq.APIKey != "" {
 		repoDir := security.GetDefaultVaultDir()
-		if v, err := security.InitVault(repoDir); err == nil {
-			_ = v.SaveSecret("OPENAI_API_KEY", rawReq.APIKey)
-		}
-		os.Setenv("OPENAI_API_KEY", rawReq.APIKey)
-		if b, ok := s.Queen.Brain.(*brain.OpenAIBrain); ok {
-			b.APIKey = rawReq.APIKey
+		switch cfg.Provider {
+		case "anthropic":
+			if v, err := security.InitVault(repoDir); err == nil {
+				_ = v.SaveSecret("ANTHROPIC_API_KEY", rawReq.APIKey)
+			}
+			os.Setenv("ANTHROPIC_API_KEY", rawReq.APIKey)
+			ab := brain.NewAnthropicBrain(rawReq.APIKey, cfg.Model)
+			if cfg.MaxNectar > 0 {
+				ab.MaxTokens = cfg.MaxNectar
+			}
+			s.Queen.Brain = ab
+		default:
+			if v, err := security.InitVault(repoDir); err == nil {
+				_ = v.SaveSecret("OPENAI_API_KEY", rawReq.APIKey)
+			}
+			os.Setenv("OPENAI_API_KEY", rawReq.APIKey)
+			ob := brain.NewOpenAIBrain(rawReq.APIKey, cfg.Model)
+			if cfg.MaxNectar > 0 {
+				ob.MaxTokens = cfg.MaxNectar
+			}
+			s.Queen.Brain = ob
 		}
 	}
 
