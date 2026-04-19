@@ -302,12 +302,32 @@ func (s *colmeiaService) BuildGoalWithHistory(colmeia *model.Colmeia, goal strin
 	var sb strings.Builder
 	sb.WriteString("HISTÓRICO DE CONVERSAS ANTERIORES DESTA COLMEIA (use como contexto):\n")
 	for _, h := range recent {
-		sb.WriteString(fmt.Sprintf("\n--- Mensagem anterior ---\nObjetivo: %s\nResultado resumido: %s\n",
-			h.Goal, truncate(h.Result, 500)))
+		// Extract only the final agent report — skip the injected history header
+		// from previous dispatches to prevent recursive context nesting.
+		summary := extractLastReport(h.Result)
+		sb.WriteString(fmt.Sprintf("\n--- Mensagem anterior ---\nObjetivo: %s\nResultado: %s\n",
+			h.Goal, truncate(summary, 300)))
 	}
 	sb.WriteString("\n--- Nova mensagem do usuário ---\n")
 	sb.WriteString(goal)
 	return sb.String(), nil
+}
+
+// extractLastReport returns the content of the last "--- Report from X ---"
+// block in the contextAccumulator. Falls back to the raw string if no block found.
+func extractLastReport(raw string) string {
+	const marker = "--- Report from "
+	idx := strings.LastIndex(raw, marker)
+	if idx < 0 {
+		return strings.TrimSpace(raw)
+	}
+	// Skip the marker line ("--- Report from X ---\n")
+	after := raw[idx:]
+	newline := strings.Index(after, "\n")
+	if newline < 0 {
+		return strings.TrimSpace(raw)
+	}
+	return strings.TrimSpace(after[newline+1:])
 }
 
 // truncate limita uma string ao tamanho máximo informado.

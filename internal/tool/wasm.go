@@ -18,96 +18,102 @@ type ExecuteCodeTool struct{}
 func (t *ExecuteCodeTool) Name() string { return "execute_code" }
 
 func (t *ExecuteCodeTool) Description() string {
-	return "Compila um ficheiro Go para WebAssembly e executa-o numa Sandbox totalmente isolada. Retorna a saída (stdout/stderr)."
+	return `Compila código Go para WebAssembly e executa numa Sandbox isolada. Retorna stdout/stderr.
+
+REGRAS:
+1. Passe o código Go completo no campo "code" (package main + func main).
+2. Use apenas stdlib Go — sem imports externos (CGO desabilitado em WASM).
+3. Passe valores dinâmicos via os.Args[1:] no campo "args" — nunca hardcode valores.
+4. Paths de arquivo dentro do código são relativos ao diretório de trabalho (/app).
+5. NUNCA descreva o que o código faria — sempre chame esta tool para executar.`
 }
 
 func (t *ExecuteCodeTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"filename": map[string]any{
+			"code": map[string]any{
 				"type":        "string",
-				"description": "O caminho do ficheiro Go a ser executado (ex: 'calculadora.go').",
+				"description": "Código fonte Go completo (package main com func main).",
+			},
+			"args": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string"},
+				"description": "Argumentos passados via os.Args[1:].",
 			},
 		},
-		"required": []string{"filename"},
+		"required": []string{"code"},
 	}
 }
 
 func (t *ExecuteCodeTool) Execute(ctx context.Context, argsJSON string) (string, error) {
 	var args struct {
-		Filename string `json:"filename"`
+		Code string   `json:"code"`
+		Args []string `json:"args"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "", fmt.Errorf("erro ao ler argumentos JSON: %w", err)
+		return "", fmt.Errorf("erro ao ler argumentos: %w", err)
+	}
+	if strings.TrimSpace(args.Code) == "" {
+		return "", fmt.Errorf("campo 'code' obrigatório")
 	}
 
-	absFilename, err := resolvePath(args.Filename)
+	tmpDir, err := os.MkdirTemp("", "wasm-*")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("erro ao criar dir temporário: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte(args.Code), 0644); err != nil {
+		return "", fmt.Errorf("erro ao gravar código: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module sandbox\n\ngo 1.21\n"), 0644); err != nil {
+		return "", fmt.Errorf("erro ao criar go.mod: %w", err)
 	}
 
-	// Log source for debugging agent-generated code issues.
-	if src, err := os.ReadFile(absFilename); err == nil {
-		fmt.Printf("[execute_code] source (%s):\n%s\n---\n", absFilename, src)
-	}
+	wasmFile := filepath.Join(tmpDir, "main.wasm")
+	homeDir, _ := os.UserHomeDir()
 
-	// 1. Compilar para WASI/WASM (Seguro, apenas usa o compilador)
-	wasmFilename := strings.TrimSuffix(absFilename, ".go") + ".wasm"
-
-	buildCmd := exec.CommandContext(ctx, "go", "build", "-o", wasmFilename, absFilename)
-	buildCmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm") // Força a compilação para WebAssembly
-
-	buildOutput, err := buildCmd.CombinedOutput()
+	buildCmd := exec.CommandContext(ctx, "go", "build", "-o", wasmFile, filepath.Join(tmpDir, "main.go"))
+	buildCmd.Env = append(os.Environ(),
+		"GOOS=wasip1",
+		"GOARCH=wasm",
+		"GOCACHE="+filepath.Join(homeDir, ".cache", "go-build"),
+	)
+	out, err := buildCmd.CombinedOutput()
+	fmt.Printf("[execute_code] go build output:\n%s\n", string(out))
 	if err != nil {
-		return "", fmt.Errorf("erro de compilação:\n%s\nErro: %w", string(buildOutput), err)
-	}
-	// Limpa o binário .wasm quando a função terminar
-	defer os.Remove(wasmFilename)
-
-	// 2. Ler o binário compilado
-	wasmBinary, err := os.ReadFile(wasmFilename)
-	if err != nil {
-		return "", fmt.Errorf("erro ao ler binário Wasm: %w", err)
+		return "", fmt.Errorf("erro de compilação:\n%s", string(out))
 	}
 
-	// 3. Criar a Célula Sandbox (Isolamento total com wazero)
-	cell, err := security.NewCell(ctx, []string{"OPENAI_API_KEY"})
+	wasmBinary, err := os.ReadFile(wasmFile)
 	if err != nil {
-		return "", fmt.Errorf("erro ao criar célula Wasm: %w", err)
+		return "", fmt.Errorf("erro ao ler binário wasm: %w", err)
+	}
+
+	cell, err := security.NewCell(ctx)
+	if err != nil {
+		return "", fmt.Errorf("erro ao criar sandbox: %w", err)
 	}
 	defer cell.Close(ctx)
 
-	// Mount the directory containing the Go file so the WASM module can
-	// read and write JSON/text files for persistence (e.g. entries, state).
-	workDir := filepath.Dir(absFilename)
-	cell.WithDirMount(workDir)
+	cwd, _ := os.Getwd()
+	cell.WithDirMount(cwd)
 
-	// 4. Capturar Stdout e Stderr da Sandbox
-	var stdoutBuf, stderrBuf bytes.Buffer
-	cell.WithOutput(&stdoutBuf, &stderrBuf)
+	var stdout, stderr bytes.Buffer
+	cell.WithOutput(&stdout, &stderr)
 
-	// 5. Executar o código isolado
-	err = cell.Execute(ctx, wasmBinary, nil)
+	execErr := cell.Execute(ctx, wasmBinary, args.Args)
 
-	// 6. Formatar o resultado para a IA
-	result := stdoutBuf.String()
-	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "invalid magic number") {
-			result += "\n[Sucesso de Compilação]: O código fonte compilou perfeitamente e não tem erros de sintaxe!\n"
-			result += "Contudo, não pôde ser executado pela Sandbox pois o ficheiro não é um programa final (não tem 'package main' e 'func main()'). Se isto for uma biblioteca, podes considerar a alteração válida!"
-		} else {
-			result += fmt.Sprintf("\n[Erro de Execução na Sandbox]: %v", err)
-		}
+	result := stdout.String()
+	if execErr != nil && !strings.Contains(execErr.Error(), "invalid magic number") {
+		result += fmt.Sprintf("\n[Erro na Sandbox]: %v", execErr)
 	}
-	if stderrBuf.Len() > 0 {
-		result += fmt.Sprintf("\n[Stderr]:\n%s", stderrBuf.String())
+	if stderr.Len() > 0 {
+		result += fmt.Sprintf("\n[Stderr]: %s", stderr.String())
 	}
-
-	// Se não imprimiu nada, devolvemos uma mensagem para a IA saber que rodou.
 	if result == "" {
-		result = "O programa executou com sucesso na Sandbox, mas não imprimiu nada."
+		result = "Executou com sucesso (sem output)."
 	}
 
 	return result, nil

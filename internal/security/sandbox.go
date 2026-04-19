@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/tetratelabs/wazero"
@@ -18,28 +17,15 @@ type Cell struct {
 }
 
 // NewCell initializes a new wazero runtime and default configuration.
-// envVars is an explicit allowlist of env var names to forward into the sandbox.
-// Only vars present in this list and set in the host environment are forwarded.
-func NewCell(ctx context.Context, envVars []string) (*Cell, error) {
-	// Create a new wazero runtime.
+func NewCell(ctx context.Context) (*Cell, error) {
 	r := wazero.NewRuntime(ctx)
 
-	// Instantiate WASI (WebAssembly System Interface) to provide standard OS-like functions.
 	wasi_snapshot_preview1.MustInstantiate(ctx, r)
 
-	// Default configuration: no access to host FS, no network, restricted env vars.
-	// stdin is an empty reader — never wraps nil to avoid panics on wasm reads.
 	config := wazero.NewModuleConfig().
 		WithStdout(io.Discard).
 		WithStderr(io.Discard).
 		WithStdin(io.NopCloser(strings.NewReader("")))
-
-	// Forward only explicitly requested env vars from the host environment.
-	for _, envName := range envVars {
-		if val := os.Getenv(envName); val != "" {
-			config = config.WithEnv(envName, val)
-		}
-	}
 
 	return &Cell{
 		runtime: r,
@@ -53,8 +39,7 @@ func (c *Cell) WithVirtualFS(fs wazero.FSConfig) *Cell {
 	return c
 }
 
-// WithDirMount mounts a host directory at "/" inside the sandbox, allowing
-// the WASM module to read and write files relative to that directory.
+// WithDirMount mounts a host directory at "/" inside the sandbox.
 func (c *Cell) WithDirMount(hostDir string) *Cell {
 	fs := wazero.NewFSConfig().WithDirMount(hostDir, "/")
 	return c.WithVirtualFS(fs)
@@ -68,14 +53,12 @@ func (c *Cell) WithOutput(stdout, stderr io.Writer) *Cell {
 
 // Execute runs a pre-compiled Wasm binary within the cell's isolation.
 func (c *Cell) Execute(ctx context.Context, wasmBinary []byte, args []string) error {
-	// Compile the Wasm binary.
 	compiledModule, err := c.runtime.CompileModule(ctx, wasmBinary)
 	if err != nil {
 		return fmt.Errorf("failed to compile wasm module: %w", err)
 	}
 	defer compiledModule.Close(ctx)
 
-	// Instantiate the module with the provided configuration.
 	mod, err := c.runtime.InstantiateModule(ctx, compiledModule, c.config.WithArgs(args...))
 	if err != nil {
 		return fmt.Errorf("failed to instantiate module: %w", err)
@@ -90,7 +73,7 @@ func (c *Cell) Close(ctx context.Context) error {
 	return c.runtime.Close(ctx)
 }
 
-// Example usage showing host function registration (The "Nectar" API)
+// RegisterHostFunction registers a Go function as a host function in the sandbox.
 func (c *Cell) RegisterHostFunction(ctx context.Context, moduleName, funcName string, function any) error {
 	_, err := c.runtime.NewHostModuleBuilder(moduleName).
 		NewFunctionBuilder().

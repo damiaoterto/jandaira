@@ -124,6 +124,9 @@ func (t *ReadFileTool) Execute(ctx context.Context, argsJSON string) (string, er
 
 	content, err := os.ReadFile(absPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Sprintf("arquivo '%s' não existe (primeira execução — trate como lista vazia).", absPath), nil
+		}
 		return "", fmt.Errorf("erro ao ler arquivo '%s': %w. Verifique se o caminho completo foi fornecido (ex: workspace/sessions/<id>/arquivo.txt)", absPath, err)
 	}
 
@@ -167,6 +170,10 @@ func (t *WriteFileTool) Execute(ctx context.Context, argsJSON string) (string, e
 	absPath, err := resolvePath(args.Filename)
 	if err != nil {
 		return "", err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
+		return "", fmt.Errorf("erro ao criar diretórios para '%s': %w", absPath, err)
 	}
 
 	err = os.WriteFile(absPath, []byte(args.Content), 0644)

@@ -143,6 +143,7 @@ func (q *Queen) AssembleSwarm(ctx context.Context, goal string, maxWorkers int) 
 	cleanJSON = strings.TrimPrefix(cleanJSON, "```")
 	cleanJSON = strings.TrimSuffix(cleanJSON, "```")
 	cleanJSON = strings.TrimSpace(cleanJSON)
+	cleanJSON = sanitizeJSONEscapes(cleanJSON)
 
 	var plan SwarmPlan
 	if err := json.Unmarshal([]byte(cleanJSON), &plan); err != nil {
@@ -255,10 +256,11 @@ func (q *Queen) runSpecialist(ctx context.Context, spec Specialist, encryptedTas
 		{Role: brain.RoleUser, Content: taskContext},
 	}
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 5; i++ {
 		response, toolCalls, report, err := q.Brain.Chat(ctx, messages, availableTools)
 		if err != nil {
-			return "", err
+			q.logf("❌ [%s] Brain.Chat failed (iteration %d): %v", spec.Name, i, err)
+			return "", fmt.Errorf("brain error on iteration %d: %w", i, err)
 		}
 
 		q.mu.Lock()
@@ -318,7 +320,24 @@ func (q *Queen) runSpecialist(ctx context.Context, spec Specialist, encryptedTas
 		}
 	}
 
-	return "", fmt.Errorf("reflection limit reached for specialist '%s'", spec.Name)
+	// Force a final summary from the specialist instead of failing the job.
+	q.logf("⚠️  [%s] Reflection limit reached — requesting final summary.", spec.Name)
+	// Keep only system + first user message to avoid context overflow.
+	trimmedMessages := messages[:2]
+	trimmedMessages = append(trimmedMessages, brain.Message{
+		Role:    brain.RoleUser,
+		Content: "REFLECTION LIMIT REACHED. Stop using tools. Report what was attempted and what failed.",
+	})
+	finalResponse, _, _, err := q.Brain.Chat(ctx, trimmedMessages, nil)
+	if err != nil {
+		q.logf("❌ [%s] Reflection limit summary also failed: %v", spec.Name, err)
+		return "", fmt.Errorf("specialist '%s' reflection limit summary failed: %w", spec.Name, err)
+	}
+	encryptedFinal, err := security.Seal(sessionKey, "[REFLECTION LIMIT] "+finalResponse)
+	if err != nil {
+		return "", fmt.Errorf("failed to encrypt reflection-limit response: %w", err)
+	}
+	return encryptedFinal, nil
 }
 
 // registerWorkflowInGraph records specialists and their topic area in the
@@ -395,6 +414,24 @@ func (q *Queen) graphContextForGoal(ctx context.Context, goal string) string {
 	}
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+// sanitizeJSONEscapes replaces invalid JSON escape sequences (e.g. \( \$ \!)
+// with their literal characters so json.Unmarshal doesn't reject LLM output.
+func sanitizeJSONEscapes(s string) string {
+	valid := map[byte]bool{'"': true, '\\': true, '/': true, 'b': true, 'f': true, 'n': true, 'r': true, 't': true, 'u': true}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) && !valid[s[i+1]] {
+			// Skip the backslash — emit only the following character.
+			i++
+			b.WriteByte(s[i])
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // slugify converts a string into a lowercase, hyphen-separated identifier
