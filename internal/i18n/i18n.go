@@ -4,7 +4,30 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
+
+var languageTimezones = map[string]string{
+	"pt": "America/Sao_Paulo",
+	"en": "America/New_York",
+	"es": "America/Mexico_City",
+	"ru": "Europe/Moscow",
+	"zh": "Asia/Shanghai",
+}
+
+// Timezone returns the time.Location associated with the current language.
+// Falls back to UTC if the timezone cannot be loaded.
+func Timezone() *time.Location {
+	tz, ok := languageTimezones[currentLang]
+	if !ok {
+		return time.UTC
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}
 
 var defaultLang = "pt"
 var currentLang = "pt"

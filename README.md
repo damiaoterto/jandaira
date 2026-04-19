@@ -22,7 +22,7 @@ Esse é exatamente o modelo de arquitetura que o projeto implementa:
 - As **Especialistas (`Specialists`)** são agentes leves com ferramentas restritas, executando em silos isolados.
 - O **Néctar** é a metáfora para o orçamento de tokens: cada agente consome néctar; quando acaba, a colmeia para.
 - As **Skills** são capacidades reutilizáveis (instruções + ferramentas) que podem ser associadas a colmeias ou agentes. Na rainha, enriquecem o meta-planejamento; nos agentes manuais, são mescladas no prompt e ferramentas no momento do despacho.
-- A **Colmeia (`Honeycomb`)** é o sistema de memória persistente em duas camadas: o `ShortTermMemory` mantém o contexto recente em RAM com expiração automática por TTL; o ChromaDB arquiva o conhecimento consolidado como vetores de longo prazo.
+- A **Colmeia (`Honeycomb`)** é o sistema de memória persistente em duas camadas: o `ShortTermMemory` mantém o contexto recente em RAM com expiração automática por TTL; o Qdrant arquiva o conhecimento consolidado como vetores de longo prazo.
 - O **Grafo de Conhecimento (`KnowledgeGraph`)** mapeia relações entre agentes, tópicos e ferramentas — a Rainha consulta esse grafo antes de cada missão para reutilizar perfis de especialistas que já obtiveram sucesso em objetivos semelhantes.
 - O **Apicultor** é o humano no loop: pode aprovar ou bloquear qualquer ação da IA antes de ela ser executada.
 
@@ -76,7 +76,7 @@ Esse é exatamente o modelo de arquitetura que o projeto implementa:
            │
            ▼
 ┌──────────────────────────────────────────────────────────┐
-│                   🍯 Honeycomb (ChromaDB)                 │
+│                   🍯 Honeycomb (Qdrant)                 │
 │   Resultado do workflow é embeddado e indexado            │
 │   Memória de longo prazo compartilhada entre missões     │
 └──────────────────────────────────────────────────────────┘
@@ -94,7 +94,7 @@ jandaira/
     ├── brain/               # Sistema nervoso do enxame
     │   ├── open_ai.go       # Brain: Chat + Embed via OpenAI
     │   ├── memory.go        # Honeycomb: interface vetorial + LocalVectorDB
-    │   ├── chroma.go        # ChromaHoneycomb: backend ChromaDB
+    │   ├── qdrant.go        # QdrantHoneycomb: backend Qdrant
     │   ├── graph.go         # KnowledgeGraph: grafo agente ↔ tópico (GraphRAG)
     │   ├── short_term.go    # ShortTermMemory: buffer TTL + compactação automática
     │   └── document.go      # Extração de texto + chunking (PDF, DOCX, XLSX…)
@@ -137,7 +137,7 @@ O `internal/brain/` vai além de um banco vetorial: implementa uma hierarquia de
 
 - Cada mensagem recebe um timestamp de expiração no momento da inserção
 - Entradas expiradas são descartadas silenciosamente no próximo acesso
-- **Compactação automática**: quando o buffer atinge `maxEntries`, o LLM sumariza o histórico acumulado em um parágrafo denso → o resumo é embeddado e arquivado no ChromaDB como `short_term_archive` → o buffer RAM é zerado
+- **Compactação automática**: quando o buffer atinge `maxEntries`, o LLM sumariza o histórico acumulado em um parágrafo denso → o resumo é embeddado e arquivado no Qdrant como `short_term_archive` → o buffer RAM é zerado
 - `Flush(ctx)` deve ser chamado ao final de cada sessão para garantir arquivamento completo; em caso de falha do LLM, o transcript bruto é arquivado como fallback
 
 ```
@@ -157,7 +157,7 @@ O `internal/brain/` vai além de um banco vetorial: implementa uma hierarquia de
          │
          ▼
 ┌──────────────────────────────────┐
-│  ChromaDB  (Memória de Longo Prazo)│
+│  Qdrant  (Memória de Longo Prazo)│
 │  type: "short_term_archive"      │
 │  content: "Em [sessão], o agente │
 │  decidiu X, encontrou Y..."      │
@@ -229,7 +229,7 @@ Resultado: a Rainha projeta enxames progressivamente melhores ao longo do tempo,
 | **Criptografia inter-agente** | ❌ Não existe         | ✅ AES-GCM entre cada bastão           |
 | **Human-in-the-Loop**         | Opcional / externo    | ✅ Nativo: modo Apicultor via WebSocket |
 | **Budget de tokens**          | Manual                | ✅ `NectarUsage` automático por enxame |
-| **Memória vetorial**          | Pinecone / externo    | ✅ ChromaDB via Docker                 |
+| **Memória vetorial**          | Pinecone / externo    | ✅ Qdrant via Docker                 |
 | **Grafo de conhecimento**     | ❌ Não existe         | ✅ `KnowledgeGraph` — GraphRAG nativo  |
 | **Memória de curto prazo**    | ❌ Não existe         | ✅ `ShortTermMemory` com TTL e compactação LLM |
 | **Interface**                 | Inexistente           | ✅ API REST + WebSocket                |
@@ -252,27 +252,27 @@ Resultado: a Rainha projeta enxames progressivamente melhores ao longo do tempo,
 # Go 1.22 ou superior
 go version
 
-# Docker (para o ChromaDB)
+# Docker (para o Qdrant)
 docker --version
 
 # Chave OpenAI
 export OPENAI_API_KEY="sk-..."
 ```
 
-### Subindo o ChromaDB
+### Subindo o Qdrant
 
 ```bash
 # Via Docker diretamente
-docker run -d --name chroma -p 8000:8000 chromadb/chroma:latest
+docker run -d --name qdrant -p 6334:6334 qdrant/qdrant:latest
 
 # Ou usando o docker-compose do projeto
 docker compose up -d
 ```
 
-Por padrão o servidor conecta em `http://localhost:8000`. Para usar outro endereço:
+Por padrão o servidor conecta em `localhost:6334`. Para usar outro endereço:
 
 ```bash
-export CHROMA_URL="http://meu-chroma:8000"
+export QDRANT_HOST="qdrant"  # hostname only, port 6334 (gRPC) used by default
 ```
 
 ### Instalação
@@ -336,7 +336,7 @@ O servidor estará disponível em `http://localhost:8080`. Monitore os eventos e
    { "type": "approve", "id": "req-1712345678901", "approved": true }
    ```
 
-5. Ao final, o resultado é salvo na memória vetorial do ChromaDB para uso futuro.
+5. Ao final, o resultado é salvo na memória vetorial do Qdrant para uso futuro.
 
 ### Configurar seu próprio enxame
 
@@ -390,7 +390,7 @@ curl -X POST http://localhost:8080/api/colmeias/{id}/agentes/{agentId}/skills \
 | `write_file`     | Cria ou sobrescreve um arquivo                                            |
 | `execute_code`   | Executa código em sandbox Wasm isolado                                    |
 | `web_search`     | Busca na internet via DuckDuckGo (respostas diretas, definições, resumos) |
-| `search_memory`  | Busca semântica na memória vetorial (ChromaDB)                            |
+| `search_memory`  | Busca semântica na memória vetorial (Qdrant)                            |
 | `store_memory`   | Salva conhecimento na memória vetorial                                    |
 
 ---

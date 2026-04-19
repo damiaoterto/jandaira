@@ -21,7 +21,7 @@ This is exactly the architectural model this project implements:
 - The **Queen (`Queen`)** does not execute tasks — she orchestrates, validates policies, and ensures security.
 - The **Specialists (`Specialists`)** are lightweight agents with restricted tools, executing in isolated silos.
 - **Nectar** is the metaphor for the token budget: each agent consumes nectar; when it runs out, the hive stops.
-- The **Honeycomb (`Honeycomb`)** is the two-tier persistent memory system: `ShortTermMemory` keeps recent context in RAM with automatic TTL expiry; ChromaDB archives consolidated long-term knowledge as vector embeddings.
+- The **Honeycomb (`Honeycomb`)** is the two-tier persistent memory system: `ShortTermMemory` keeps recent context in RAM with automatic TTL expiry; Qdrant archives consolidated long-term knowledge as vector embeddings.
 - The **Knowledge Graph (`KnowledgeGraph`)** maps relationships between agents, topics, and tools — the Queen queries it before every mission to reuse specialist profiles that have already succeeded on similar goals.
 - The **Beekeeper** is the human in the loop: they can approve or block any AI action before it is executed.
 
@@ -75,7 +75,7 @@ This is exactly the architectural model this project implements:
            │
            ▼
 ┌──────────────────────────────────────────────────────────┐
-│                   🍯 Honeycomb (ChromaDB)                 │
+│                   🍯 Honeycomb (Qdrant)                 │
 │   Workflow result is embedded and indexed                 │
 │   Long-term memory shared between missions               │
 └──────────────────────────────────────────────────────────┘
@@ -93,7 +93,7 @@ jandaira/
     ├── brain/               # Hive nervous system
     │   ├── open_ai.go       # Brain: Chat + Embed via OpenAI
     │   ├── memory.go        # Honeycomb: vector interface + LocalVectorDB
-    │   ├── chroma.go        # ChromaHoneycomb: ChromaDB backend
+    │   ├── qdrant.go        # QdrantHoneycomb: Qdrant backend
     │   ├── graph.go         # KnowledgeGraph: agent ↔ topic graph (GraphRAG)
     │   ├── short_term.go    # ShortTermMemory: TTL buffer + auto-compaction
     │   └── document.go      # Text extraction + chunking (PDF, DOCX, XLSX…)
@@ -136,7 +136,7 @@ jandaira/
 
 - Each message receives an expiry timestamp at insertion time
 - Expired entries are silently dropped on the next access
-- **Automatic compaction**: when the buffer hits `maxEntries`, the LLM summarises the accumulated history into a dense paragraph → the summary is embedded and archived in ChromaDB as `short_term_archive` → the RAM buffer is cleared
+- **Automatic compaction**: when the buffer hits `maxEntries`, the LLM summarises the accumulated history into a dense paragraph → the summary is embedded and archived in Qdrant as `short_term_archive` → the RAM buffer is cleared
 - `Flush(ctx)` should be called at session end to guarantee complete archival; if the LLM fails, the raw transcript is archived as a fallback
 
 ```
@@ -156,7 +156,7 @@ jandaira/
          │
          ▼
 ┌──────────────────────────────────┐
-│  ChromaDB  (Long-Term Memory)    │
+│  Qdrant  (Long-Term Memory)    │
 │  type: "short_term_archive"      │
 │  content: "In [session], the     │
 │  agent decided X, found Y..."   │
@@ -225,7 +225,7 @@ Result: the Queen designs progressively better swarms over time, using only grap
 | **Inter-agent encryption** | ❌ Does not exist | ✅ AES-GCM between each pass |
 | **Human-in-the-Loop** | Optional / external | ✅ Native: Beekeeper mode via WebSocket |
 | **Token budget** | Manual | ✅ Automatic `NectarUsage` per swarm |
-| **Vector memory** | Pinecone / external | ✅ ChromaDB via Docker |
+| **Vector memory** | Pinecone / external | ✅ Qdrant via Docker |
 | **Knowledge graph** | ❌ Does not exist | ✅ `KnowledgeGraph` — native GraphRAG |
 | **Short-term memory** | ❌ Does not exist | ✅ `ShortTermMemory` with TTL + LLM compaction |
 | **Interface** | Nonexistent | ✅ REST API + WebSocket |
@@ -248,27 +248,27 @@ Result: the Queen designs progressively better swarms over time, using only grap
 # Go 1.22 or higher
 go version
 
-# Docker (for ChromaDB)
+# Docker (for Qdrant)
 docker --version
 
 # OpenAI API key
 export OPENAI_API_KEY="sk-..."
 ```
 
-### Starting ChromaDB
+### Starting Qdrant
 
 ```bash
 # Via Docker directly
-docker run -d --name chroma -p 8000:8000 chromadb/chroma:latest
+docker run -d --name qdrant -p 6334:6334 qdrant/qdrant:latest
 
 # Or using the project's docker-compose
 docker compose up -d
 ```
 
-By default the server connects to `http://localhost:8000`. To use a different address:
+By default the server connects to `localhost:6334`. To use a different address:
 
 ```bash
-export CHROMA_URL="http://my-chroma:8000"
+export QDRANT_HOST="qdrant"  # hostname only, port 6334 (gRPC) used by default
 ```
 
 ### Installation
@@ -332,7 +332,7 @@ The server will be available at `http://localhost:8080`. Monitor real-time event
    { "type": "approve", "id": "req-1712345678901", "approved": true }
    ```
 
-5. At the end, the result is saved to ChromaDB vector memory for future use.
+5. At the end, the result is saved to Qdrant vector memory for future use.
 
 ### Configure your own swarm
 
@@ -355,7 +355,7 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 | `write_file` | Creates or overwrites a file |
 | `execute_code` | Executes code in an isolated Wasm sandbox |
 | `web_search` | Searches the web via DuckDuckGo (direct answers, definitions, summaries) |
-| `search_memory` | Semantic search in the hive's vector memory (ChromaDB) |
+| `search_memory` | Semantic search in the hive's vector memory (Qdrant) |
 | `store_memory` | Saves knowledge to vector memory |
 
 ---

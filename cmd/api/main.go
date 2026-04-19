@@ -66,13 +66,14 @@ func main() {
 		swarmName = cfg.SwarmName
 	}
 
-	chromaURL := os.Getenv("CHROMA_URL")
-	if chromaURL == "" {
-		chromaURL = "http://localhost:8000"
+	qdrantHost := os.Getenv("QDRANT_HOST")
+	if qdrantHost == "" {
+		qdrantHost = "localhost"
 	}
-	honeycomb, err := brain.NewChromaHoneycomb(ctx, chromaURL)
+	qdrantPort := 6334
+	honeycomb, err := brain.NewQdrantHoneycomb(qdrantHost, qdrantPort)
 	if err != nil {
-		fmt.Printf("Error initializing ChromaDB: %v\n", err)
+		fmt.Printf("Error initializing Qdrant: %v\n", err)
 		os.Exit(1)
 	}
 	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)

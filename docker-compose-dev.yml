@@ -1,12 +1,11 @@
 services:
-  chroma:
-    image: ghcr.io/chroma-core/chroma:latest
-    environment:
-      - IS_PERSISTENT=TRUE
-    volumes:
-      - chroma-data:/data
+  qdrant:
+    image: qdrant/qdrant:latest
     ports:
-      - "8000:8000"
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
     networks:
       - jandaira
 
@@ -14,18 +13,17 @@ services:
     build:
       context: .
     depends_on:
-      - chroma
+      - qdrant
     environment:
-      - CHROMA_URL=http://chroma:8000
+      - QDRANT_HOST=qdrant
     ports:
       - "8080:8080"
     networks:
       - jandaira
-    
 
 networks:
   jandaira:
     driver: bridge
 
 volumes:
-  chroma-data:
+  qdrant_storage:

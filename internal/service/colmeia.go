@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/damiaoterto/jandaira/internal/i18n"
 	"github.com/damiaoterto/jandaira/internal/model"
 	"github.com/damiaoterto/jandaira/internal/repository"
 	"github.com/damiaoterto/jandaira/internal/swarm"
@@ -294,19 +295,21 @@ func appendIfMissing(slice []string, t string) []string {
 // BuildGoalWithHistory enriquece o objetivo com o histórico recente da colmeia,
 // permitindo que os agentes tenham contexto de conversas anteriores.
 func (s *colmeiaService) BuildGoalWithHistory(colmeia *model.Colmeia, goal string) (string, error) {
-	recent, err := s.historico.FindRecentCompleted(colmeia.ID, 3)
+	recent, err := s.historico.FindRecentCompleted(colmeia.ID, 10)
 	if err != nil || len(recent) == 0 {
 		return goal, nil
 	}
 
+	tz := i18n.Timezone()
 	var sb strings.Builder
 	sb.WriteString("HISTÓRICO DE CONVERSAS ANTERIORES DESTA COLMEIA (use como contexto):\n")
 	for _, h := range recent {
 		// Extract only the final agent report — skip the injected history header
 		// from previous dispatches to prevent recursive context nesting.
 		summary := extractLastReport(h.Result)
-		sb.WriteString(fmt.Sprintf("\n--- Mensagem anterior ---\nObjetivo: %s\nResultado: %s\n",
-			h.Goal, truncate(summary, 300)))
+		ts := h.CreatedAt.In(tz).Format("02/01/2006 15:04")
+		sb.WriteString(fmt.Sprintf("\n--- Mensagem anterior [%s] ---\nObjetivo: %s\nResultado: %s\n",
+			ts, h.Goal, truncate(summary, 600)))
 	}
 	sb.WriteString("\n--- Nova mensagem do usuário ---\n")
 	sb.WriteString(goal)

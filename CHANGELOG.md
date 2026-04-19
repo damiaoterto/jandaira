@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- **Migração de memória vetorial: ChromaDB → Qdrant** (`internal/brain/qdrant.go`): `ChromaHoneycomb` substituído por `QdrantHoneycomb`, que se conecta ao Qdrant via gRPC (porta 6334) usando `github.com/qdrant/go-client`. IDs string mapeados para UUID via SHA1. Distância coseno nativa — score já retornado como similaridade em [0,1], sem conversão. Variável de ambiente `CHROMA_URL` substituída por `QDRANT_HOST` (somente hostname; porta 6334 fixada). `docker-compose-dev.yml` atualizado: serviço `chroma` removido, `QDRANT_HOST=qdrant` configurado no serviço `api`.
+
+### Fixed
+
+- **Contexto desatualizado ao retornar à colmeia** (`internal/swarm/queen.go`): cada novo `DispatchWorkflow` iniciava o `contextAccumulator` vazio, dependendo exclusivamente de especialistas que chamassem `search_memory` explicitamente. Corrigido: antes de iniciar o pipeline, o `DispatchWorkflow` agora busca as top-5 memórias relevantes no Honeycomb (via embedding do objetivo) e as injeta automaticamente no `contextAccumulator`. Resultado: contexto histórico disponível para todos os especialistas sem chamada explícita à ferramenta.
+
 ### Added
 
 - **Gerenciamento de Skills** (`internal/model/skill.go`, `internal/repository/skill.go`, `internal/service/skill.go`, `internal/api/skill_handler.go`): skills são capacidades reutilizáveis que encapsulam instruções e ferramentas para um domínio específico. Podem ser associadas a colmeias ou a agentes individuais via tabelas many-to-many (`colmeia_skills`, `agente_colmeia_skills`).
@@ -27,6 +35,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 - **Knowledge Graph** (`internal/brain/graph.go`): nova interface `KnowledgeGraph` com implementação `LocalKnowledgeGraph` (JSON persistido em disco). A Queen registra agentes e tópicos como nós após cada workflow e usa o grafo para enriquecer o planejamento de futuros enxames com histórico de especialistas (`expert_in` edges). ([`swarm/queen.go`](internal/swarm/queen.go))
 - **Memória de Curto Prazo com TTL** (`internal/brain/short_term.go`): `ShortTermMemory` — buffer de mensagens com expiração por entrada. Quando o limite é atingido ou `Flush()` é chamado, as mensagens são sumarizadas pelo LLM e arquivadas no ChromaDB como `short_term_archive`, evitando overflow de contexto em sessões longas.
+
+### Fixed
+
+- **Runtime image** (`Dockerfile`): trocado de `alpine` para `golang:1.26-bookworm` como imagem de runtime. Alpine usa musl libc — incompatível com LanceDB/ONNX que exige glibc (`libstdc++.so.6`). Builder também migrado para `golang:1.26-bookworm` para garantir que o binário seja linkado contra glibc. Home dir de `appuser` criado com `-m` e ownership de `/app` corrigido.
+- **`execute_code` tool** (`internal/tool/wasm.go`): refatorado para aceitar código Go diretamente no campo `code` (string), eliminando dependência do `write_file` para criar o arquivo `.go` antes da execução. Código é gravado em dir temporário com `go.mod` mínimo, compilado para WASM (`GOOS=wasip1`), executado via wazero com `/app` montado no sandbox. `GOCACHE` explícito para evitar falha de permissão no container.
+- **`read_file` tool** (`internal/tool/list_directory.go`): arquivo inexistente retornava `error` — specialist entrava em loop de retry até reflection limit. Corrigido para retornar mensagem informativa `"arquivo não existe (primeira execução — trate como lista vazia)"` com `nil` error.
+- **`write_file` tool** (`internal/tool/list_directory.go`): `os.WriteFile` falhava silenciosamente quando diretório pai não existia. Adicionado `os.MkdirAll` antes de escrever.
+- **Reflection limit** (`internal/swarm/queen.go`): ao atingir o limite de iterações, specialist retornava `error` matando o job. Corrigido para forçar uma chamada final ao LLM com contexto trimado (só system + primeiro user message) pedindo resumo — job sempre conclui com resultado em vez de falhar. Limite reduzido de 10 para 5 iterações.
+- **JSON inválido da Queen** (`internal/swarm/queen.go`): LLM gerava JSON com escapes inválidos estilo LaTeX (`\(`, `\$`) causando `json.Unmarshal` falhar com `invalid character '(' in string escape code`. Adicionado `sanitizeJSONEscapes` que substitui qualquer `\X` inválido pelo caractere literal antes do parse.
 
 ---
 

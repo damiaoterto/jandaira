@@ -177,6 +177,22 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 		Task: func(ctx context.Context) error {
 			contextAccumulator := fmt.Sprintf("Original Goal: %s\n\n", goal)
 
+			// Pre-seed context with relevant past memories so specialists have
+			// historical context even without calling search_memory explicitly.
+			if q.Honeycomb != nil && q.Brain != nil {
+				if vec, err := q.Brain.Embed(ctx, goal); err == nil {
+					if memories, err := q.Honeycomb.Search(ctx, groupID, vec, 5); err == nil && len(memories) > 0 {
+						contextAccumulator += "--- RELEVANT PAST CONTEXT (from memory) ---\n"
+						for _, m := range memories {
+							if content, ok := m.Metadata["content"]; ok && content != "" {
+								contextAccumulator += content + "\n---\n"
+							}
+						}
+						contextAccumulator += "\n"
+					}
+				}
+			}
+
 			sessionKey, err := security.GenerateKey()
 			if err != nil {
 				errChan <- fmt.Errorf("failed to generate cryptographic key: %w", err)
