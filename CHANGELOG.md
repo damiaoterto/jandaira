@@ -10,6 +10,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ### Changed
 
+- **`StoreMemoryTool` — persistent storage without file system** (`internal/tool/search_memory.go`): removed `write_file` and `create_directory` from the queen's toolkit. `store_memory` is now the sole persistence mechanism. Tool description updated to make this explicit. Added `type` and `metadata` parameters so agents can tag records (e.g. `financial_entry`, `calculation_result`) with arbitrary key-value fields.
+- **`OpenAIBrain` — `max_completion_tokens`** (`internal/brain/open_ai.go`): replaced `max_tokens` with `max_completion_tokens` in both `Chat` and `ChatJSON` methods. Required by newer OpenAI reasoning models (o1, o3, o4-mini) that reject the legacy parameter.
+- **`search_memory` / `store_memory` — English-only strings** (`internal/tool/search_memory.go`): all user-facing strings (descriptions, error messages, output text) translated to English.
+
+### Fixed
+
+- **`StoreMemoryTool` — no data loss on embedding failure** (`internal/tool/search_memory.go`): when `Brain.Embed` fails (e.g. Anthropic provider without an OpenAI key for embeddings), the tool now falls back to a uniform 1536-dim vector and sets `metadata["embedding"]="none"`, persisting the record to Qdrant instead of returning an error. Financial transactions and calculation results are never silently dropped.
+- **`SearchMemoryTool` — graceful degradation on embedding failure** (`internal/tool/search_memory.go`): returns an informative message instead of an error when embedding is unavailable, preventing agent retry loops.
+
+### Changed
+
 - **Migração de memória vetorial: ChromaDB → Qdrant** (`internal/brain/qdrant.go`): `ChromaHoneycomb` substituído por `QdrantHoneycomb`, que se conecta ao Qdrant via gRPC (porta 6334) usando `github.com/qdrant/go-client`. IDs string mapeados para UUID via SHA1. Distância coseno nativa — score já retornado como similaridade em [0,1], sem conversão. Variável de ambiente `CHROMA_URL` substituída por `QDRANT_HOST` (somente hostname; porta 6334 fixada). `docker-compose-dev.yml` atualizado: serviço `chroma` removido, `QDRANT_HOST=qdrant` configurado no serviço `api`.
 
 ### Fixed
