@@ -56,8 +56,8 @@ Esse é exatamente o modelo de arquitetura que o projeto implementa:
 ┌──────────────────────┐          ┌──────────────────────┐
 │  Especialista #1     │  ctx     │  Especialista #2     │
 │  "Desenvolvedora"    │ ──────►  │  "Auditora"          │
-│  Tools: write_file   │          │  Tools: execute_code │
-│         search_mem   │          │         read_file    │
+│  Tools: execute_code │          │  Tools: execute_code │
+│         search_mem   │          │         store_memory │
 └──────────┬───────────┘          └──────────┬───────────┘
            │                                 │
            ▼                                 ▼
@@ -315,14 +315,14 @@ O servidor estará disponível em `http://localhost:8080`. Monitore os eventos e
    ```
 
 2. A Rainha distribui a tarefa para a pipeline de Especialistas:
-   - **Desenvolvedora Wasm** → escreve `soma.go` usando `write_file`
-   - **Auditora de Qualidade** → executa o código com `execute_code` e gera um relatório
+   - **Desenvolvedora Wasm** → compila e executa `soma.go` em sandbox via `execute_code`
+   - **Auditora de Qualidade** → valida o resultado e persiste o relatório com `store_memory`
 
 3. Acompanhe o progresso pelo WebSocket:
 
    ```json
    { "type": "agent_change", "agent": "Desenvolvedora Wasm" }
-   { "type": "tool_start",   "agent": "Desenvolvedora Wasm", "tool": "write_file", "args": "{...}" }
+   { "type": "tool_start",   "agent": "Desenvolvedora Wasm", "tool": "execute_code", "args": "{...}" }
    { "type": "result",       "message": "# Relatório Final\n..." }
    ```
 
@@ -330,7 +330,7 @@ O servidor estará disponível em `http://localhost:8080`. Monitore os eventos e
 
    ```json
    // Servidor envia:
-   { "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
+   { "type": "approval_request", "id": "req-1712345678901", "tool": "execute_code", "args": "{...}" }
 
    // Cliente responde:
    { "type": "approve", "id": "req-1712345678901", "approved": true }
@@ -383,15 +383,16 @@ curl -X POST http://localhost:8080/api/colmeias/{id}/agentes/{agentId}/skills \
 
 ### Ferramentas disponíveis
 
-| Ferramenta       | Descrição                                                                 |
-| ---------------- | ------------------------------------------------------------------------- |
-| `list_directory` | Lista arquivos e pastas de um diretório                                   |
-| `read_file`      | Lê o conteúdo de um arquivo                                               |
-| `write_file`     | Cria ou sobrescreve um arquivo                                            |
-| `execute_code`   | Executa código em sandbox Wasm isolado                                    |
-| `web_search`     | Busca na internet via DuckDuckGo (respostas diretas, definições, resumos) |
-| `search_memory`  | Busca semântica na memória vetorial (Qdrant)                            |
-| `store_memory`   | Salva conhecimento na memória vetorial                                    |
+| Ferramenta       | Descrição                                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `list_directory` | Lista arquivos e pastas de um diretório                                                              |
+| `read_file`      | Lê o conteúdo de um arquivo (somente leitura — nenhum dado é persistido em disco pelos agentes)     |
+| `execute_code`   | Executa código Go em sandbox Wasm isolado — use para cálculos e processamento de dados               |
+| `web_search`     | Busca na internet via DuckDuckGo (respostas diretas, definições, resumos)                            |
+| `search_memory`  | Busca semântica na memória vetorial (Qdrant); degrada graciosamente se embedding indisponível        |
+| `store_memory`   | **Único mecanismo de persistência permanente.** Salva dados no Qdrant com campos `type` e `metadata`. Use para registros financeiros, resultados de cálculos e qualquer dado que precise sobreviver entre sessões. |
+
+> **Nota:** `write_file` e `create_directory` foram removidos do toolkit dos agentes. Todo dado persistente vai para o banco vetorial via `store_memory`.
 
 ---
 
@@ -453,7 +454,7 @@ O servidor HTTP é iniciado com `./jandaira-api --port 8080` e expõe as seguint
 
 #### Colmeias Persistentes
 
-Colmeias são hives nomeadas e persistentes. Diferente de sessões, uma colmeia pode receber **múltiplas mensagens ao longo do tempo**, mantendo histórico de conversas como contexto. Os agentes podem ser **pré-definidos pelo usuário** (com prompts e ferramentas customizáveis) ou **montados automaticamente pela rainha**.
+Colmeias são hives nomeadas e persistentes. Diferente de sessões, uma colmeia pode receber **múltiplas mensagens ao longo do tempo**, mantendo histórico de conversas como contexto. Os agentes podem ser **pré-definidos pelo usuário** (com prompts e ferramentas customizáveis, somente quando `queen_managed=false`) ou **montados automaticamente pela rainha** (`queen_managed=true`). Tentar adicionar agentes pré-definidos a uma colmeia `queen_managed=true` retorna `409 Conflict`.
 
 | Método   | Rota                                    | Descrição                                              |
 | -------- | --------------------------------------- | ------------------------------------------------------ |
@@ -465,7 +466,8 @@ Colmeias são hives nomeadas e persistentes. Diferente de sessões, uma colmeia 
 | `POST`   | `/api/colmeias/:id/dispatch`            | Envia mensagem à colmeia                               |
 | `GET`    | `/api/colmeias/:id/historico`           | Lista histórico de conversas                           |
 | `GET`    | `/api/colmeias/:id/agentes`             | Lista agentes da colmeia                               |
-| `POST`   | `/api/colmeias/:id/agentes`             | Adiciona agente pré-definido                           |
+| `POST`   | `/api/colmeias/:id/agentes`             | Adiciona agente pré-definido (`queen_managed=false` obrigatório) |
+| `GET`    | `/api/colmeias/:id/agentes/:agentId`    | Busca agente por ID                                    |
 | `PUT`    | `/api/colmeias/:id/agentes/:agentId`    | Edita nome, prompt e ferramentas do agente             |
 | `DELETE` | `/api/colmeias/:id/agentes/:agentId`    | Remove agente da colmeia                               |
 
@@ -513,8 +515,8 @@ curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
 // Response 200
 {
   "tools": [
-    { "name": "write_file", "description": "Cria ou sobrescreve um arquivo", "parameters": { ... } },
-    { "name": "execute_code", "description": "Executa código em sandbox Wasm", "parameters": { ... } }
+    { "name": "execute_code",   "description": "Executa código Go em sandbox Wasm isolado", "parameters": { ... } },
+    { "name": "store_memory",   "description": "Persiste dados no banco vetorial (Qdrant)", "parameters": { ... } }
   ]
 }
 ```
@@ -528,12 +530,12 @@ curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
     {
       "name": "Desenvolvedora Wasm",
       "system_prompt": "...",
-      "allowed_tools": ["write_file", "search_memory"]
+      "allowed_tools": ["execute_code", "search_memory"]
     },
     {
       "name": "Auditora de Qualidade",
       "system_prompt": "...",
-      "allowed_tools": ["execute_code", "read_file"]
+      "allowed_tools": ["execute_code", "store_memory", "read_file"]
     }
   ]
 }

@@ -196,6 +196,7 @@ func (s *Server) Start() error {
 			{
 				agentes.GET("", s.handleListAgentesColmeia)
 				agentes.POST("", s.handleAddAgenteColmeia)
+				agentes.GET("/:agentId", s.handleGetAgenteColmeia)
 				agentes.PUT("/:agentId", s.handleUpdateAgenteColmeia)
 				agentes.DELETE("/:agentId", s.handleRemoveAgenteColmeia)
 

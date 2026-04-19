@@ -146,7 +146,31 @@ func (s *Server) handleListAgentesColmeia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"agentes": agentes, "total": len(agentes)})
 }
 
+// handleGetAgenteColmeia returns a single agent of a colmeia.
+//
+//	GET /api/colmeias/:id/agentes/:agentId
+func (s *Server) handleGetAgenteColmeia(c *gin.Context) {
+	agenteID, err := strconv.ParseUint(c.Param("agentId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de agente inválido."})
+		return
+	}
+	agente, err := s.colmeiaService.GetAgente(uint(agenteID))
+	if err != nil {
+		if errors.Is(err, service.ErrAgenteColmeiaNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Agente não encontrado."})
+			return
+		}
+		log.Printf("ERROR handleGetAgenteColmeia agente=%d: %v", agenteID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar agente."})
+		return
+	}
+	c.JSON(http.StatusOK, agente)
+}
+
 // handleAddAgenteColmeia adds a pre-defined agent to the colmeia.
+// Returns 409 Conflict if the colmeia is queen_managed — agents are assembled
+// automatically by the Queen in that mode and must not be pre-defined manually.
 //
 //	POST /api/colmeias/:id/agentes
 //	Body: { "name": "Analista", "system_prompt": "...", "allowed_tools": ["web_search"] }
@@ -159,6 +183,24 @@ func (s *Server) handleAddAgenteColmeia(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Os campos 'name' e 'system_prompt' são obrigatórios."})
+		return
+	}
+
+	colmeia, err := s.colmeiaService.GetColmeia(colmeiaID)
+	if err != nil {
+		if errors.Is(err, service.ErrColmeiaNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Colmeia não encontrada."})
+			return
+		}
+		log.Printf("ERROR handleAddAgenteColmeia GetColmeia colmeia=%s: %v", colmeiaID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar colmeia."})
+		return
+	}
+
+	if colmeia.QueenManaged {
+		c.JSON(http.StatusConflict, gin.H{
+			"error": "Colmeia gerenciada pela Rainha não aceita agentes pré-definidos. Defina queen_managed=false para usar agentes customizados.",
+		})
 		return
 	}
 

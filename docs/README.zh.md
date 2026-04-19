@@ -374,7 +374,7 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 
 #### 持久蜂巢（Colmeias）
 
-蜂巢是持久化的命名实体。与会话不同，蜂巢可以**随时间接收多条消息**，将对话历史作为上下文注入每次新调度。智能体可由**用户预先定义**（自定义提示词和工具），也可由**蜂王自动组建**。
+蜂巢是持久化的命名实体。与会话不同，蜂巢可以**随时间接收多条消息**，将对话历史作为上下文注入每次新调度。智能体可由**用户预先定义**（自定义提示词和工具，仅限 `queen_managed=false`），也可由**蜂王自动组建**（`queen_managed=true`）。向 `queen_managed=true` 的蜂巢添加预定义智能体会返回 `409 Conflict`。
 
 | 方法 | 路由 | 描述 |
 |---|---|---|
@@ -386,7 +386,8 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 | `POST` | `/api/colmeias/:id/dispatch` | 向蜂巢发送消息 |
 | `GET` | `/api/colmeias/:id/historico` | 查看对话历史 |
 | `GET` | `/api/colmeias/:id/agentes` | 列出蜂巢智能体 |
-| `POST` | `/api/colmeias/:id/agentes` | 添加预定义智能体 |
+| `POST` | `/api/colmeias/:id/agentes` | 添加预定义智能体（需 `queen_managed=false`） |
+| `GET` | `/api/colmeias/:id/agentes/:agentId` | 按 ID 获取智能体 |
 | `PUT` | `/api/colmeias/:id/agentes/:agentId` | 编辑智能体（名称、提示词、工具） |
 | `DELETE` | `/api/colmeias/:id/agentes/:agentId` | 从蜂巢移除智能体 |
 

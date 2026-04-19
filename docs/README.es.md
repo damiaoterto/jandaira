@@ -319,7 +319,7 @@ Además, las claves y accesos son gestionados localmente usando el paquete `inte
 
 #### Colmenas Persistentes (Colmeias)
 
-Las colmenas son entidades persistentes y con nombre. A diferencia de las sesiones, una colmena puede recibir **múltiples mensajes a lo largo del tiempo**, manteniendo el historial de conversaciones como contexto. Los agentes pueden ser **predefinidos por el usuario** (con prompts y herramientas personalizables) o **ensamblados automáticamente por la Reina**.
+Las colmenas son entidades persistentes y con nombre. A diferencia de las sesiones, una colmena puede recibir **múltiples mensajes a lo largo del tiempo**, manteniendo el historial de conversaciones como contexto. Los agentes pueden ser **predefinidos por el usuario** (con prompts y herramientas personalizables, solo cuando `queen_managed=false`) o **ensamblados automáticamente por la Reina** (`queen_managed=true`). Intentar agregar agentes predefinidos a una colmena `queen_managed=true` devuelve `409 Conflict`.
 
 | Método | Ruta | Descripción |
 |---|---|---|
@@ -331,7 +331,8 @@ Las colmenas son entidades persistentes y con nombre. A diferencia de las sesion
 | `POST` | `/api/colmeias/:id/dispatch` | Envía mensaje a la colmena |
 | `GET` | `/api/colmeias/:id/historico` | Lista historial de conversaciones |
 | `GET` | `/api/colmeias/:id/agentes` | Lista agentes de la colmena |
-| `POST` | `/api/colmeias/:id/agentes` | Agrega agente predefinido |
+| `POST` | `/api/colmeias/:id/agentes` | Agrega agente predefinido (`queen_managed=false` requerido) |
+| `GET` | `/api/colmeias/:id/agentes/:agentId` | Obtiene agente por ID |
 | `PUT` | `/api/colmeias/:id/agentes/:agentId` | Edita nombre, prompt y herramientas |
 | `DELETE` | `/api/colmeias/:id/agentes/:agentId` | Elimina agente de la colmena |
 

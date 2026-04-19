@@ -55,8 +55,8 @@ This is exactly the architectural model this project implements:
 ┌──────────────────────┐          ┌──────────────────────┐
 │  Specialist #1       │  ctx     │  Specialist #2       │
 │  "Developer"         │ ──────►  │  "Auditor"           │
-│  Tools: write_file   │          │  Tools: execute_code │
-│         search_mem   │          │         read_file    │
+│  Tools: execute_code │          │  Tools: execute_code │
+│         search_mem   │          │         store_memory │
 └──────────┬───────────┘          └──────────┬───────────┘
            │                                 │
            ▼                                 ▼
@@ -311,14 +311,14 @@ The server will be available at `http://localhost:8080`. Monitor real-time event
    ```
 
 2. The Queen distributes the task to the Specialist pipeline:
-   - **Wasm Developer** → writes `sum.go` using `write_file`
-   - **Quality Auditor** → executes the code with `execute_code` and generates a report
+   - **Wasm Developer** → compiles and runs `sum.go` inside the Wasm sandbox via `execute_code`
+   - **Quality Auditor** → validates the result and persists the report with `store_memory`
 
 3. Follow progress via WebSocket:
 
    ```json
    { "type": "agent_change", "agent": "Wasm Developer" }
-   { "type": "tool_start",   "agent": "Wasm Developer", "tool": "write_file", "args": "{...}" }
+   { "type": "tool_start",   "agent": "Wasm Developer", "tool": "execute_code", "args": "{...}" }
    { "type": "result",       "message": "# Final Report\n..." }
    ```
 
@@ -326,7 +326,7 @@ The server will be available at `http://localhost:8080`. Monitor real-time event
 
    ```json
    // Server sends:
-   { "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
+   { "type": "approval_request", "id": "req-1712345678901", "tool": "execute_code", "args": "{...}" }
 
    // Client responds:
    { "type": "approve", "id": "req-1712345678901", "approved": true }
@@ -351,12 +351,13 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 | Tool | Description |
 |---|---|
 | `list_directory` | Lists files and folders in a directory |
-| `read_file` | Reads the content of a file |
-| `write_file` | Creates or overwrites a file |
-| `execute_code` | Executes code in an isolated Wasm sandbox |
+| `read_file` | Reads file content (read-only — agents never persist data to disk) |
+| `execute_code` | Compiles and runs Go code in an isolated Wasm sandbox — use for calculations and data processing |
 | `web_search` | Searches the web via DuckDuckGo (direct answers, definitions, summaries) |
-| `search_memory` | Semantic search in the hive's vector memory (Qdrant) |
-| `store_memory` | Saves knowledge to vector memory |
+| `search_memory` | Semantic search in the hive's vector memory (Qdrant); degrades gracefully when embedding is unavailable |
+| `store_memory` | **The sole permanent persistence mechanism.** Saves records to Qdrant with optional `type` and `metadata` fields. Use for financial entries, calculation results, and any data that must survive across sessions. |
+
+> **Note:** `write_file` and `create_directory` have been removed from the agent toolkit. All persistent data flows through `store_memory` into the vector database.
 
 ---
 
@@ -402,7 +403,7 @@ Start the HTTP server with `./jandaira-api --port 8080`. The following routes ar
 
 #### Persistent Hives (Colmeias)
 
-Hives are persistent, named entities. Unlike sessions, a hive can receive **multiple messages over time**, carrying conversation history as context for each new dispatch. Agents can be **pre-defined by the user** (with custom prompts and tools) or **assembled automatically by the Queen**.
+Hives are persistent, named entities. Unlike sessions, a hive can receive **multiple messages over time**, carrying conversation history as context for each new dispatch. Agents can be **pre-defined by the user** (with custom prompts and tools, only when `queen_managed=false`) or **assembled automatically by the Queen** (`queen_managed=true`). Attempting to add pre-defined agents to a `queen_managed=true` hive returns `409 Conflict`.
 
 | Method | Route | Description |
 |---|---|---|
@@ -414,7 +415,8 @@ Hives are persistent, named entities. Unlike sessions, a hive can receive **mult
 | `POST` | `/api/colmeias/:id/dispatch` | Send a message to the hive |
 | `GET` | `/api/colmeias/:id/historico` | List conversation history |
 | `GET` | `/api/colmeias/:id/agentes` | List hive agents |
-| `POST` | `/api/colmeias/:id/agentes` | Add pre-defined agent |
+| `POST` | `/api/colmeias/:id/agentes` | Add pre-defined agent (`queen_managed=false` required) |
+| `GET` | `/api/colmeias/:id/agentes/:agentId` | Get agent by ID |
 | `PUT` | `/api/colmeias/:id/agentes/:agentId` | Edit agent name, prompt, tools |
 | `DELETE` | `/api/colmeias/:id/agentes/:agentId` | Remove agent from hive |
 
@@ -462,8 +464,8 @@ curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
 // Response 200
 {
   "tools": [
-    { "name": "write_file", "description": "Creates or overwrites a file", "parameters": { ... } },
-    { "name": "execute_code", "description": "Executes code in a Wasm sandbox", "parameters": { ... } }
+    { "name": "execute_code", "description": "Compiles and runs Go code in an isolated Wasm sandbox", "parameters": { ... } },
+    { "name": "store_memory", "description": "Persists data to the vector database (Qdrant)", "parameters": { ... } }
   ]
 }
 ```
@@ -474,8 +476,8 @@ curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
 // Response 200
 {
   "agents": [
-    { "name": "Wasm Developer", "system_prompt": "...", "allowed_tools": ["write_file", "search_memory"] },
-    { "name": "Quality Auditor", "system_prompt": "...", "allowed_tools": ["execute_code", "read_file"] }
+    { "name": "Wasm Developer",   "system_prompt": "...", "allowed_tools": ["execute_code", "search_memory"] },
+    { "name": "Quality Auditor",  "system_prompt": "...", "allowed_tools": ["execute_code", "store_memory", "read_file"] }
   ]
 }
 ```

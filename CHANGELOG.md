@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- **`GET /api/colmeias/:id/agentes/:agentId`** (`internal/api/colmeia_handler.go`): new endpoint to retrieve a single pre-defined agent by ID, including its associated skills. Previously only list (`GET /agentes`) and mutation (`PUT`, `DELETE`) endpoints existed for hive agents.
+
+### Changed
+
+- **`POST /api/colmeias/:id/agentes` — queen_managed guard** (`internal/api/colmeia_handler.go`): adding a pre-defined agent to a `queen_managed=true` hive now returns `409 Conflict`. Queen-managed hives assemble agents dynamically on every dispatch; manually pre-defining agents in that mode had no effect and was a source of confusion. Set `queen_managed=false` to use custom agents.
+
 ### Changed
 
 - **`StoreMemoryTool` — persistent storage without file system** (`internal/tool/search_memory.go`): removed `write_file` and `create_directory` from the queen's toolkit. `store_memory` is now the sole persistence mechanism. Tool description updated to make this explicit. Added `type` and `metadata` parameters so agents can tag records (e.g. `financial_entry`, `calculation_result`) with arbitrary key-value fields.

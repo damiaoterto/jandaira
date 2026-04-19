@@ -29,7 +29,7 @@ Jandaira is an AI agent swarm orchestration system. A **Queen** coordinates a pi
 | Component       | Role |
 |-----------------|------|
 | **Queen**        | Meta-planner. Assembles swarms, runs workflows, manages tool approval |
-| **Brain**        | LLM interface (OpenAI). Chat, embedding, tool call resolution |
+| **Brain**        | LLM interface (OpenAI / Anthropic). Chat, embedding, structured output. OpenAI uses `max_completion_tokens`; Anthropic uses `max_tokens`. |
 | **GroupQueue**   | Concurrent job executor. Per-group semaphore, exponential backoff retry |
 | **Honeycomb**    | Vector DB (local JSON). Stores embeddings for semantic search |
 | **KnowledgeGraph** | Optional graph of specialist→topic relationships. Queen uses it to plan future swarms |
@@ -75,7 +75,7 @@ main()
   ├── Init KnowledgeGraph (optional, from disk)
   ├── Init GroupQueue (maxConcurrent from config)
   ├── NewQueen(queue, brain, honeycomb)
-  ├── Queen.EquipTool(web_search, read_file, write_file, ...)
+  ├── Queen.EquipTool(list_directory, read_file, execute_code, search_memory, store_memory, web_search)
   ├── Queen.RegisterSwarm(groupID, Policy{MaxNectar, Isolate, RequiresApproval})
   └── api.NewServer(queen, port, services...)
         ├── Wire Queen callbacks → WS broadcast
@@ -237,6 +237,27 @@ POST /api/colmeias/:id/dispatch { goal }
 
 ---
 
+## Colmeia Agent Management
+
+Pre-defined agents are only allowed in `queen_managed=false` hives.
+
+```
+POST /api/colmeias/:id/agentes { name, system_prompt, allowed_tools }
+  │
+  ├── Load colmeia from DB
+  ├── if colmeia.QueenManaged == true → 409 Conflict
+  │     "Queen-managed hive does not accept pre-defined agents"
+  └── colmeiaService.AddAgente(colmeiaID, name, systemPrompt, allowedTools)
+        └── 201 Created { agente }
+
+GET /api/colmeias/:id/agentes/:agentId
+  └── colmeiaService.GetAgente(agenteID)
+        ├── 200 OK { agente with skills }
+        └── 404 if not found
+```
+
+---
+
 ## Colmeia Flow
 
 Colmeias are persistent named hives. Multiple dispatches accumulate memory.
@@ -288,12 +309,14 @@ Jandaira has three memory layers:
 - Last 3 completed dispatches injected as conversation context
 - Persists forever across restarts
 
-### Layer 2 — Honeycomb (Vector DB)
-- Local JSON file on disk, loaded at startup
+### Layer 2 — Honeycomb (Vector DB — Qdrant)
+- Qdrant backend via gRPC (port 6334). **Primary and sole persistence target for agent data.**
 - After each workflow completes, the full accumulated context is embedded and stored
 - Scoped per `groupID` (= `colmeiaID` for hives)
 - On new colmeia dispatch: semantic search for top-3 relevant past results (cosine > 0.7)
 - Also used by ShortTermMemory for compacted archives
+- `store_memory` tool writes here; agents have no access to the file system for writes
+- When embedding fails (e.g. Anthropic provider without OpenAI key), a fallback uniform vector is used — data is never lost, semantic search is degraded for that record
 
 ### Layer 3 — ShortTermMemory
 - TTL-aware in-RAM message buffer

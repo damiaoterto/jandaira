@@ -619,6 +619,11 @@ paths:
       description: |
         Creates a persistent agent inside the hive. The agent's `system_prompt`
         and `allowed_tools` are fully editable via `PUT /api/colmeias/{id}/agentes/{agentId}`.
+
+        **Restriction:** returns `409 Conflict` if the hive has `queen_managed=true`.
+        Queen-managed hives assemble agents automatically on every dispatch — pre-defined
+        agents are not allowed. Set `queen_managed=false` when creating the hive to use
+        custom agents.
       requestBody:
         required: true
         content:
@@ -645,6 +650,14 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Hive is queen_managed — pre-defined agents not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Colmeia gerenciada pela Rainha não aceita agentes pré-definidos. Defina queen_managed=false para usar agentes customizados."
         '428':
           $ref: '#/components/responses/NotConfigured'
         '500':
@@ -654,6 +667,26 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ColmeiaID'
       - $ref: '#/components/parameters/AgenteID'
+
+    get:
+      tags: [Colmeias]
+      summary: Get a single hive agent
+      description: Returns the full agent record including skills.
+      responses:
+        '200':
+          description: Agent record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgenteColmeia'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
     put:
       tags: [Colmeias]
