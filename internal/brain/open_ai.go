@@ -192,3 +192,72 @@ func (b *OpenAIBrain) Embed(ctx context.Context, text string) ([]float32, error)
 }
 
 func (b *OpenAIBrain) GetProviderName() string { return "openai" }
+
+// ChatJSON calls the OpenAI Structured Outputs API, enforcing the given JSON
+// schema so the response is always valid and parseable without sanitization.
+func (b *OpenAIBrain) ChatJSON(ctx context.Context, messages []Message, schema map[string]interface{}) (string, ConsumptionReport, error) {
+	url := "https://api.openai.com/v1/chat/completions"
+
+	var formattedMessages []oaiMessage
+	for _, msg := range messages {
+		formattedMessages = append(formattedMessages, oaiMessage{
+			Role:    string(msg.Role),
+			Content: msg.Content,
+		})
+	}
+
+	payload := map[string]interface{}{
+		"model":    b.Model,
+		"messages": formattedMessages,
+		"response_format": map[string]interface{}{
+			"type":        "json_schema",
+			"json_schema": schema,
+		},
+	}
+
+	jsonData, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+b.APIKey)
+
+	resp, err := b.Client.Do(req)
+	if err != nil {
+		return "", ConsumptionReport{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", ConsumptionReport{}, fmt.Errorf("OpenAI API error: %s", string(body))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", ConsumptionReport{}, err
+	}
+
+	if len(result.Choices) == 0 {
+		return "", ConsumptionReport{}, fmt.Errorf("OpenAI returned empty choices")
+	}
+
+	report := ConsumptionReport{
+		PromptTokens:     result.Usage.PromptTokens,
+		CompletionTokens: result.Usage.CompletionTokens,
+		TotalTokens:      result.Usage.TotalTokens,
+	}
+
+	return result.Choices[0].Message.Content, report, nil
+}

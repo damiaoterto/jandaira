@@ -41,3 +41,10 @@ type Brain interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 	GetProviderName() string
 }
+
+// StructuredBrain is an optional extension of Brain for providers that support
+// native structured/JSON output, guaranteeing schema-valid responses.
+type StructuredBrain interface {
+	Brain
+	ChatJSON(ctx context.Context, messages []Message, schema map[string]interface{}) (string, ConsumptionReport, error)
+}

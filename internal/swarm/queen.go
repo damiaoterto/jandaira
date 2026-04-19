@@ -133,21 +133,55 @@ func (q *Queen) AssembleSwarm(ctx context.Context, goal string, maxWorkers int) 
 		{Role: brain.RoleUser, Content: fmt.Sprintf("User objective: %s", goal)},
 	}
 
-	response, _, _, err := q.Brain.Chat(ctx, messages, nil)
-	if err != nil {
-		return nil, fmt.Errorf("Queen meta-planning failed: %w", err)
+	var rawJSON string
+	if sb, ok := q.Brain.(brain.StructuredBrain); ok {
+		schema := map[string]interface{}{
+			"name":   "swarm_plan",
+			"strict": true,
+			"schema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"specialists": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"Name":         map[string]interface{}{"type": "string"},
+								"SystemPrompt": map[string]interface{}{"type": "string"},
+								"AllowedTools": map[string]interface{}{
+									"type":  "array",
+									"items": map[string]interface{}{"type": "string"},
+								},
+							},
+							"required":             []string{"Name", "SystemPrompt", "AllowedTools"},
+							"additionalProperties": false,
+						},
+					},
+				},
+				"required":             []string{"specialists"},
+				"additionalProperties": false,
+			},
+		}
+		resp, _, err := sb.ChatJSON(ctx, messages, schema)
+		if err != nil {
+			return nil, fmt.Errorf("Queen meta-planning failed: %w", err)
+		}
+		rawJSON = resp
+	} else {
+		resp, _, _, err := q.Brain.Chat(ctx, messages, nil)
+		if err != nil {
+			return nil, fmt.Errorf("Queen meta-planning failed: %w", err)
+		}
+		rawJSON = strings.TrimPrefix(resp, "```json")
+		rawJSON = strings.TrimPrefix(rawJSON, "```")
+		rawJSON = strings.TrimSuffix(rawJSON, "```")
+		rawJSON = strings.TrimSpace(rawJSON)
+		rawJSON = sanitizeJSONEscapes(rawJSON)
 	}
 
-	cleanJSON := response
-	cleanJSON = strings.TrimPrefix(cleanJSON, "```json")
-	cleanJSON = strings.TrimPrefix(cleanJSON, "```")
-	cleanJSON = strings.TrimSuffix(cleanJSON, "```")
-	cleanJSON = strings.TrimSpace(cleanJSON)
-	cleanJSON = sanitizeJSONEscapes(cleanJSON)
-
 	var plan SwarmPlan
-	if err := json.Unmarshal([]byte(cleanJSON), &plan); err != nil {
-		return nil, fmt.Errorf("Queen generated an invalid plan (JSON error): %w\nGenerated response: %s", err, cleanJSON)
+	if err := json.Unmarshal([]byte(rawJSON), &plan); err != nil {
+		return nil, fmt.Errorf("Queen generated an invalid plan (JSON error): %w\nGenerated response: %s", err, rawJSON)
 	}
 
 	var workerNames []string

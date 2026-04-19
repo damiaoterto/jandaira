@@ -44,6 +44,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 - **`write_file` tool** (`internal/tool/list_directory.go`): `os.WriteFile` falhava silenciosamente quando diretório pai não existia. Adicionado `os.MkdirAll` antes de escrever.
 - **Reflection limit** (`internal/swarm/queen.go`): ao atingir o limite de iterações, specialist retornava `error` matando o job. Corrigido para forçar uma chamada final ao LLM com contexto trimado (só system + primeiro user message) pedindo resumo — job sempre conclui com resultado em vez de falhar. Limite reduzido de 10 para 5 iterações.
 - **JSON inválido da Queen** (`internal/swarm/queen.go`): LLM gerava JSON com escapes inválidos estilo LaTeX (`\(`, `\$`) causando `json.Unmarshal` falhar com `invalid character '(' in string escape code`. Adicionado `sanitizeJSONEscapes` que substitui qualquer `\X` inválido pelo caractere literal antes do parse.
+- **Queen Structured Outputs** (`internal/brain/llm.go`, `internal/brain/open_ai.go`, `internal/swarm/queen.go`): `AssembleSwarm` now uses OpenAI Structured Outputs (`response_format: json_schema`) to guarantee the swarm plan always returns valid JSON matching the `SwarmPlan` schema. New optional `StructuredBrain` interface extends `Brain` with a `ChatJSON` method — `OpenAIBrain` implements it; other providers fall back to the previous `sanitizeJSONEscapes` path. Eliminates the `invalid character '\n' in string literal` error class in `AssembleSwarm`.
 
 ---
 
