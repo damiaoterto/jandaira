@@ -10,6 +10,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ### Added
 
+- **Document tracking model** (`internal/model/document.go`, `internal/repository/document.go`, `internal/service/document.go`): new `Document` entity persists metadata for every uploaded file (filename, workspace path, Qdrant collection, scope key/value, chunk count). Enables listing and deleting documents without a separate Qdrant query.
+- **`GET /api/sessions/:id/documents`** (`internal/api/document_handler.go`): list all documents uploaded to a session, ordered by upload date.
+- **`DELETE /api/sessions/:id/documents/:docId`** (`internal/api/document_handler.go`): delete a document — removes the SQLite record, all Qdrant chunks matching `filename` + `session_id`, and the workspace file from disk.
+- **`GET /api/colmeias/:id/documents`** (`internal/api/document_handler.go`): list all documents uploaded to a hive.
+- **`DELETE /api/colmeias/:id/documents/:docId`** (`internal/api/document_handler.go`): delete a hive document — same cascade as the session variant (SQLite + Qdrant + disk).
+- **`Honeycomb.DeleteByFilter`** (`internal/brain/memory.go`, `internal/brain/qdrant.go`): new method on the `Honeycomb` interface that deletes all Qdrant points whose payload matches every key/value pair in a filter map. Implemented on both `QdrantHoneycomb` (gRPC filter delete) and `LocalVectorDB` (in-memory scan).
+
+### Fixed
+
+- **UTF-8 panic on non-UTF-8 files** (`internal/api/document_handler.go`): uploading Latin-1 encoded files (CSV, PDF) caused `qdrant/go-client` to panic with `invalid UTF-8 in string`. All metadata values are now sanitized via `toValidUTF8()` (wraps `strings.ToValidUTF8`) before being passed to Qdrant.
+
+### Changed
+
+- **API messages translated to English** (`internal/api/`): all user-facing error and success messages across every handler (`session_handler.go`, `colmeia_handler.go`, `setup_handler.go`, `config_handler.go`, `skill_handler.go`, `document_handler.go`, `api.go`) translated from Portuguese to English for consistency.
+- **`openapi.yaml`** (`docs/openapi.yaml`): added `GET`/`DELETE` document endpoints for sessions and hives, `Document` schema, and reusable `DocumentID` path parameter.
+
+### Added
+
 - **`GET /api/colmeias/:id/agentes/:agentId`** (`internal/api/colmeia_handler.go`): new endpoint to retrieve a single pre-defined agent by ID, including its associated skills. Previously only list (`GET /agentes`) and mutation (`PUT`, `DELETE`) endpoints existed for hive agents.
 
 ### Changed

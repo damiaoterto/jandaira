@@ -19,7 +19,7 @@ func (s *Server) handleListSkills(c *gin.Context) {
 	skills, err := s.skillService.ListSkills()
 	if err != nil {
 		log.Printf("ERROR handleListSkills: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao listar skills."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list skills."})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"skills": skills, "total": len(skills)})
@@ -37,17 +37,17 @@ func (s *Server) handleCreateSkill(c *gin.Context) {
 		AllowedTools []string `json:"allowed_tools"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "O campo 'name' é obrigatório."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Field 'name' is required."})
 		return
 	}
 
 	skill, err := s.skillService.CreateSkill(req.Name, req.Description, req.Instructions, req.AllowedTools)
 	if err != nil {
 		log.Printf("ERROR handleCreateSkill: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao criar skill."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create skill."})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"message": "Skill criada com sucesso.", "skill": skill})
+	c.JSON(http.StatusCreated, gin.H{"message": "Skill created successfully.", "skill": skill})
 }
 
 // handleGetSkill returns a single skill by ID.
@@ -56,18 +56,18 @@ func (s *Server) handleCreateSkill(c *gin.Context) {
 func (s *Server) handleGetSkill(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de skill inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid skill ID."})
 		return
 	}
 
 	skill, err := s.skillService.GetSkill(uint(id))
 	if err != nil {
 		if errors.Is(err, service.ErrSkillNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Skill não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Skill not found."})
 			return
 		}
 		log.Printf("ERROR handleGetSkill id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar skill."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch skill."})
 		return
 	}
 	c.JSON(http.StatusOK, skill)
@@ -79,7 +79,7 @@ func (s *Server) handleGetSkill(c *gin.Context) {
 func (s *Server) handleUpdateSkill(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de skill inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid skill ID."})
 		return
 	}
 	var req struct {
@@ -89,21 +89,21 @@ func (s *Server) handleUpdateSkill(c *gin.Context) {
 		AllowedTools []string `json:"allowed_tools"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "O campo 'name' é obrigatório."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Field 'name' is required."})
 		return
 	}
 
 	skill, err := s.skillService.UpdateSkill(uint(id), req.Name, req.Description, req.Instructions, req.AllowedTools)
 	if err != nil {
 		if errors.Is(err, service.ErrSkillNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Skill não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Skill not found."})
 			return
 		}
 		log.Printf("ERROR handleUpdateSkill id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao atualizar skill."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update skill."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Skill atualizada.", "skill": skill})
+	c.JSON(http.StatusOK, gin.H{"message": "Skill updated.", "skill": skill})
 }
 
 // handleDeleteSkill deletes a skill.
@@ -112,19 +112,19 @@ func (s *Server) handleUpdateSkill(c *gin.Context) {
 func (s *Server) handleDeleteSkill(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de skill inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid skill ID."})
 		return
 	}
 	if err := s.skillService.DeleteSkill(uint(id)); err != nil {
 		if errors.Is(err, service.ErrSkillNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Skill não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Skill not found."})
 			return
 		}
 		log.Printf("ERROR handleDeleteSkill id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao deletar skill."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete skill."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Skill removida com sucesso."})
+	c.JSON(http.StatusOK, gin.H{"message": "Skill deleted successfully."})
 }
 
 // ─── Colmeia ↔ Skills ─────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ func (s *Server) handleListColmeiaSkills(c *gin.Context) {
 	skills, err := s.skillService.ListColmeiaSkills(c.Param("id"))
 	if err != nil {
 		log.Printf("ERROR handleListColmeiaSkills id=%s: %v", c.Param("id"), err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao listar skills da colmeia."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list hive skills."})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"skills": skills, "total": len(skills)})
@@ -152,20 +152,20 @@ func (s *Server) handleAttachSkillToColmeia(c *gin.Context) {
 		SkillID uint `json:"skill_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "O campo 'skill_id' é obrigatório."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Field 'skill_id' is required."})
 		return
 	}
 
 	if err := s.skillService.AttachSkillToColmeia(req.SkillID, colmeiaID); err != nil {
 		if errors.Is(err, service.ErrSkillNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Skill não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Skill not found."})
 			return
 		}
 		log.Printf("ERROR handleAttachSkillToColmeia colmeia=%s skill=%d: %v", colmeiaID, req.SkillID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao associar skill."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to attach skill."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Skill associada à colmeia."})
+	c.JSON(http.StatusOK, gin.H{"message": "Skill attached to hive."})
 }
 
 // handleDetachSkillFromColmeia removes a skill from a colmeia.
@@ -175,20 +175,20 @@ func (s *Server) handleDetachSkillFromColmeia(c *gin.Context) {
 	colmeiaID := c.Param("id")
 	skillID, err := strconv.ParseUint(c.Param("skillId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de skill inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid skill ID."})
 		return
 	}
 
 	if err := s.skillService.DetachSkillFromColmeia(uint(skillID), colmeiaID); err != nil {
 		if errors.Is(err, service.ErrSkillNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Skill não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Skill not found."})
 			return
 		}
 		log.Printf("ERROR handleDetachSkillFromColmeia colmeia=%s skill=%d: %v", colmeiaID, skillID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao remover skill da colmeia."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove skill from hive."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Skill removida da colmeia."})
+	c.JSON(http.StatusOK, gin.H{"message": "Skill removed from hive."})
 }
 
 // ─── AgenteColmeia ↔ Skills ───────────────────────────────────────────────────
@@ -199,14 +199,14 @@ func (s *Server) handleDetachSkillFromColmeia(c *gin.Context) {
 func (s *Server) handleListAgenteSkills(c *gin.Context) {
 	agenteID, err := strconv.ParseUint(c.Param("agentId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de agente inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent ID."})
 		return
 	}
 
 	skills, err := s.skillService.ListAgenteSkills(uint(agenteID))
 	if err != nil {
 		log.Printf("ERROR handleListAgenteSkills agente=%d: %v", agenteID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao listar skills do agente."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list agent skills."})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"skills": skills, "total": len(skills)})
@@ -219,27 +219,27 @@ func (s *Server) handleListAgenteSkills(c *gin.Context) {
 func (s *Server) handleAttachSkillToAgente(c *gin.Context) {
 	agenteID, err := strconv.ParseUint(c.Param("agentId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de agente inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent ID."})
 		return
 	}
 	var req struct {
 		SkillID uint `json:"skill_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "O campo 'skill_id' é obrigatório."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Field 'skill_id' is required."})
 		return
 	}
 
 	if err := s.skillService.AttachSkillToAgente(req.SkillID, uint(agenteID)); err != nil {
 		if errors.Is(err, service.ErrSkillNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Skill não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Skill not found."})
 			return
 		}
 		log.Printf("ERROR handleAttachSkillToAgente agente=%d skill=%d: %v", agenteID, req.SkillID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao associar skill ao agente."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to attach skill to agent."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Skill associada ao agente."})
+	c.JSON(http.StatusOK, gin.H{"message": "Skill attached to agent."})
 }
 
 // handleDetachSkillFromAgente removes a skill from a pre-defined agent.
@@ -248,23 +248,23 @@ func (s *Server) handleAttachSkillToAgente(c *gin.Context) {
 func (s *Server) handleDetachSkillFromAgente(c *gin.Context) {
 	agenteID, err := strconv.ParseUint(c.Param("agentId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de agente inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent ID."})
 		return
 	}
 	skillID, err := strconv.ParseUint(c.Param("skillId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de skill inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid skill ID."})
 		return
 	}
 
 	if err := s.skillService.DetachSkillFromAgente(uint(skillID), uint(agenteID)); err != nil {
 		if errors.Is(err, service.ErrSkillNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Skill não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Skill not found."})
 			return
 		}
 		log.Printf("ERROR handleDetachSkillFromAgente agente=%d skill=%d: %v", agenteID, skillID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao remover skill do agente."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove skill from agent."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Skill removida do agente."})
+	c.JSON(http.StatusOK, gin.H{"message": "Skill removed from agent."})
 }

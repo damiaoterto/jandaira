@@ -24,7 +24,7 @@ func (s *Server) handleListSessions(c *gin.Context) {
 	sessions, err := s.sessionService.ListSessions()
 	if err != nil {
 		log.Printf("ERROR handleListSessions: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao listar sessões."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list sessions."})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"sessions": sessions, "total": len(sessions)})
@@ -33,26 +33,26 @@ func (s *Server) handleListSessions(c *gin.Context) {
 // handleCreateSession starts a new session.
 //
 //	POST /api/sessions
-//	Body: { "name": "opcional", "goal": "objetivo da missão" }
+//	Body: { "name": "optional", "goal": "mission objective" }
 func (s *Server) handleCreateSession(c *gin.Context) {
 	var req struct {
 		Name string `json:"name"`
 		Goal string `json:"goal" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "O campo 'goal' é obrigatório."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Field 'goal' is required."})
 		return
 	}
 
 	session, err := s.sessionService.Create(req.Name, req.Goal)
 	if err != nil {
 		log.Printf("ERROR handleCreateSession: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao criar sessão."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session."})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "Sessão criada. Use POST /api/sessions/:id/dispatch para iniciar o enxame.",
+		"message": "Session created. Use POST /api/sessions/:id/dispatch to start the swarm.",
 		"session": session,
 	})
 }
@@ -64,11 +64,11 @@ func (s *Server) handleGetSession(c *gin.Context) {
 	session, err := s.sessionService.GetSession(c.Param("id"))
 	if err != nil {
 		if errors.Is(err, service.ErrSessionNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Sessão não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Session not found."})
 			return
 		}
 		log.Printf("ERROR handleGetSession id=%s: %v", c.Param("id"), err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar sessão."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch session."})
 		return
 	}
 	c.JSON(http.StatusOK, session)
@@ -81,11 +81,11 @@ func (s *Server) handleDeleteSession(c *gin.Context) {
 	id := c.Param("id")
 	if err := s.sessionService.DeleteSession(id); err != nil {
 		if errors.Is(err, service.ErrSessionNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Sessão não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Session not found."})
 			return
 		}
 		log.Printf("ERROR handleDeleteSession id=%s: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao deletar sessão."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete session."})
 		return
 	}
 
@@ -94,7 +94,7 @@ func (s *Server) handleDeleteSession(c *gin.Context) {
 	if err := os.RemoveAll(sessionWorkspace); err != nil {
 		log.Printf("WARN handleDeleteSession cleanup workspace id=%s: %v", id, err)
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Sessão e agentes removidos com sucesso."})
+	c.JSON(http.StatusOK, gin.H{"message": "Session and agents deleted successfully."})
 }
 
 // handleListSessionAgents returns all agents belonging to a session.
@@ -104,11 +104,11 @@ func (s *Server) handleListSessionAgents(c *gin.Context) {
 	agents, err := s.sessionService.ListAgents(c.Param("id"))
 	if err != nil {
 		if errors.Is(err, service.ErrSessionNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Sessão não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Session not found."})
 			return
 		}
 		log.Printf("ERROR handleListSessionAgents id=%s: %v", c.Param("id"), err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao listar agentes."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list agents."})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"agents": agents, "total": len(agents)})
@@ -119,24 +119,24 @@ func (s *Server) handleListSessionAgents(c *gin.Context) {
 // Progress is streamed to connected WebSocket clients.
 //
 //	POST /api/sessions/:id/dispatch
-//	Body: { "goal": "opcional — substitui o goal da sessão" }
+//	Body: { "goal": "optional — overrides the session goal" }
 func (s *Server) handleSessionDispatch(c *gin.Context) {
 	sessionID := c.Param("id")
 
 	session, err := s.sessionService.GetSession(sessionID)
 	if err != nil {
 		if errors.Is(err, service.ErrSessionNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Sessão não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Session not found."})
 			return
 		}
 		log.Printf("ERROR handleSessionDispatch GetSession id=%s: %v", sessionID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar sessão."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch session."})
 		return
 	}
 
 	if session.Status == model.SessionStatusCompleted || session.Status == model.SessionStatusFailed {
 		c.JSON(http.StatusConflict, gin.H{
-			"error": fmt.Sprintf("Sessão já finalizada com status '%s'. Crie uma nova sessão.", session.Status),
+			"error": fmt.Sprintf("Session already finished with status '%s'. Create a new session.", session.Status),
 		})
 		return
 	}
@@ -151,7 +151,7 @@ func (s *Server) handleSessionDispatch(c *gin.Context) {
 		goal = session.Goal
 	}
 	if goal == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Nenhum objetivo definido. Forneça 'goal' no body ou ao criar a sessão."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No goal defined. Provide 'goal' in the request body or when creating the session."})
 		return
 	}
 
@@ -177,7 +177,7 @@ func (s *Server) handleSessionDispatch(c *gin.Context) {
 		}
 		if len(paths) > 0 {
 			goal = fmt.Sprintf(
-				"%s\n\nDocumentos enviados pelo usuário (use read_file com estes caminhos exatos):\n%s",
+				"%s\n\nDocuments uploaded by user (use read_file with these exact paths):\n%s",
 				goal,
 				strings.Join(paths, "\n"),
 			)
@@ -191,7 +191,7 @@ func (s *Server) handleSessionDispatch(c *gin.Context) {
 	specialists, err := s.Queen.AssembleSwarm(assembleCtx, goal, maxWorkers)
 	if err != nil {
 		log.Printf("ERROR handleSessionDispatch AssembleSwarm session=%s: %v", sessionID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Falha ao planejar o enxame: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to plan the swarm: %v", err)})
 		return
 	}
 
@@ -200,7 +200,7 @@ func (s *Server) handleSessionDispatch(c *gin.Context) {
 		agent, err := s.sessionService.AddAgent(sessionID, spec.Name, "specialist")
 		if err != nil {
 			// Non-fatal: log and continue.
-			s.Broadcast(WsMessage{Type: "status", Message: fmt.Sprintf("⚠️ Falha ao registrar agente '%s': %v", spec.Name, err)})
+			s.Broadcast(WsMessage{Type: "status", Message: fmt.Sprintf("⚠️ Failed to register agent '%s': %v", spec.Name, err)})
 			continue
 		}
 		s.Broadcast(WsMessage{Type: "agent_created", AgentData: agent})
@@ -220,7 +220,7 @@ func (s *Server) handleSessionDispatch(c *gin.Context) {
 
 		s.Broadcast(WsMessage{
 			Type:    "status",
-			Message: fmt.Sprintf("🚀 Sessão %s iniciada com %d agente(s). Acompanhe pelo WebSocket.", sessionID, len(specialists)),
+			Message: fmt.Sprintf("🚀 Session %s started with %d agent(s). Follow progress via WebSocket.", sessionID, len(specialists)),
 		})
 
 		resultChan, errChan := s.Queen.DispatchWorkflow(ctx, groupID, goal, specialists)
@@ -234,12 +234,12 @@ func (s *Server) handleSessionDispatch(c *gin.Context) {
 			s.Broadcast(WsMessage{Type: "error", Message: dispatchErr.Error()})
 		case <-ctx.Done():
 			_ = s.sessionService.FailSession(sessionID)
-			s.Broadcast(WsMessage{Type: "error", Message: "Tempo limite da missão atingido."})
+			s.Broadcast(WsMessage{Type: "error", Message: "Mission timeout reached."})
 		}
 	}()
 
 	c.JSON(http.StatusAccepted, gin.H{
-		"message":    "Missão despachada. Acompanhe o progresso via WebSocket.",
+		"message":    "Mission dispatched. Follow progress via WebSocket.",
 		"session_id": sessionID,
 		"agents":     len(specialists),
 	})

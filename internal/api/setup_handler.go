@@ -18,12 +18,12 @@ import (
 func (s *Server) handleSetup(c *gin.Context) {
 	configured, err := s.configService.IsConfigured()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao verificar configuração."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify configuration."})
 		return
 	}
 	if configured {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": "A colmeia já foi configurada. Não é possível alterar a estrutura principal pelo setup base.",
+			"error": "Hive already configured. Cannot change the main structure via the setup endpoint.",
 		})
 		return
 	}
@@ -33,7 +33,7 @@ func (s *Server) handleSetup(c *gin.Context) {
 		APIKey string `json:"api_key"`
 	}
 	if err := c.ShouldBindJSON(&rawReq); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Parâmetros inválidos para configuração."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid configuration parameters."})
 		return
 	}
 
@@ -60,7 +60,7 @@ func (s *Server) handleSetup(c *gin.Context) {
 	}
 
 	if err := s.configService.Save(&cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao gravar configuração no banco de dados."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration to database."})
 		return
 	}
 
@@ -97,6 +97,6 @@ func (s *Server) handleSetup(c *gin.Context) {
 	})
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Configuração salva com sucesso! O ecossistema está pronto e as operárias acordaram.",
+		"message": "Configuration saved successfully! The ecosystem is ready.",
 	})
 }

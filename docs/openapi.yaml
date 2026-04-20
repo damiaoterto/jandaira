@@ -1031,6 +1031,28 @@ paths:
           $ref: '#/components/responses/InternalError'
 
   /api/sessions/{id}/documents:
+    get:
+      tags: [Sessions, Documents]
+      summary: List session documents
+      description: Returns all documents uploaded to the session, ordered by upload date (newest first).
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '200':
+          description: Document list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Document'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
     post:
       tags: [Sessions, Documents]
       summary: Upload a document to session memory
@@ -1130,7 +1152,58 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/sessions/{id}/documents/{docId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionID'
+      - $ref: '#/components/parameters/DocumentID'
+
+    delete:
+      tags: [Sessions, Documents]
+      summary: Delete a session document
+      description: |
+        Removes the document record from SQLite, deletes all Qdrant chunks matching
+        `filename` + `session_id` (when a collection was recorded), and removes the
+        workspace file from disk. Non-fatal if the Qdrant collection or disk file no
+        longer exists.
+      responses:
+        '200':
+          description: Document deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: "Documento excluído com sucesso."
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/colmeias/{id}/documents:
+    get:
+      tags: [Colmeias, Documents]
+      summary: List hive documents
+      description: Returns all documents uploaded to the hive, ordered by upload date (newest first).
+      parameters:
+        - $ref: '#/components/parameters/ColmeiaID'
+      responses:
+        '200':
+          description: Document list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Document'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
     post:
       tags: [Colmeias, Documents]
       summary: Upload a document to hive memory
@@ -1217,6 +1290,35 @@ paths:
                   summary: No text found
                   value:
                     error: "Nenhum texto encontrado no documento."
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/documents/{docId}:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+      - $ref: '#/components/parameters/DocumentID'
+
+    delete:
+      tags: [Colmeias, Documents]
+      summary: Delete a hive document
+      description: |
+        Removes the document record from SQLite, deletes all Qdrant chunks matching
+        `filename` + `colmeia_id` (when a collection was recorded), and removes the
+        workspace file from disk. Non-fatal if the Qdrant collection or disk file no
+        longer exists.
+      responses:
+        '200':
+          description: Document deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: "Documento excluído com sucesso."
+        '404':
+          $ref: '#/components/responses/NotFound'
         '428':
           $ref: '#/components/responses/NotConfigured'
         '500':
@@ -1437,6 +1539,47 @@ components:
           type: boolean
           description: Used by the client in `approve` messages to grant or deny a tool call
           example: true
+
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Document record UUID
+          example: "d1e2f3a4-b5c6-7890-abcd-ef1234567890"
+        filename:
+          type: string
+          description: Original filename of the uploaded document
+          example: "relatorio-q2.pdf"
+        workspace_path:
+          type: string
+          description: Relative path to the extracted plain-text file on disk
+          example: "workspace/sessions/550e8400-e29b-41d4-a716-446655440000/relatorio-q2.txt"
+        collection:
+          type: string
+          description: Qdrant collection where chunks are stored. Empty string when embedding was unavailable.
+          example: "enxame-alfa"
+        scope_key:
+          type: string
+          description: Scope discriminator — `session_id` or `colmeia_id`
+          enum: [session_id, colmeia_id]
+          example: "session_id"
+        scope_val:
+          type: string
+          format: uuid
+          description: ID of the session or hive this document belongs to
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        chunks:
+          type: integer
+          description: Number of chunks stored in Qdrant. 0 when embedding was unavailable.
+          example: 12
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     DocumentUploadResponse:
       type: object
@@ -1748,6 +1891,16 @@ components:
       schema:
         type: integer
       example: 1
+
+    DocumentID:
+      name: docId
+      in: path
+      required: true
+      description: Document UUID
+      schema:
+        type: string
+        format: uuid
+      example: "d1e2f3a4-b5c6-7890-abcd-ef1234567890"
 
   responses:
     BadRequest:

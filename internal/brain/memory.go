@@ -29,6 +29,9 @@ type Honeycomb interface {
 
 	// EnsureCollection makes sure a collection exists (creates it if not).
 	EnsureCollection(ctx context.Context, collection string, dimension int) error
+
+	// DeleteByFilter removes all points whose payload matches every key/value pair in filter.
+	DeleteByFilter(ctx context.Context, collection string, filter map[string]string) error
 }
 
 type Document struct {
@@ -115,6 +118,31 @@ func cosineSimilarity(a, b []float32) float32 {
 		return 0
 	}
 	return dotProduct / (float32(math.Sqrt(float64(normA))) * float32(math.Sqrt(float64(normB))))
+}
+
+func (db *LocalVectorDB) DeleteByFilter(_ context.Context, collection string, filter map[string]string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	docs, exists := db.collections[collection]
+	if !exists {
+		return nil
+	}
+
+	for id, doc := range docs {
+		match := true
+		for k, v := range filter {
+			if doc.Metadata[k] != v {
+				match = false
+				break
+			}
+		}
+		if match {
+			delete(docs, id)
+		}
+	}
+
+	return db.save()
 }
 
 func (db *LocalVectorDB) Search(ctx context.Context, collection string, query []float32, limit int) ([]Result, error) {

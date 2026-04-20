@@ -45,12 +45,13 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	Queen          *swarm.Queen
-	Port           int
-	configService  service.ConfigService
-	sessionService service.SessionService
-	colmeiaService service.ColmeiaService
-	skillService   service.SkillService
+	Queen           *swarm.Queen
+	Port            int
+	configService   service.ConfigService
+	sessionService  service.SessionService
+	colmeiaService  service.ColmeiaService
+	skillService    service.SkillService
+	documentService service.DocumentService
 
 	// WebSocket client management
 	clients   map[*websocket.Conn]bool
@@ -61,7 +62,7 @@ type Server struct {
 	pendingApprovalsMu sync.Mutex
 }
 
-func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService, skillSvc service.SkillService) *Server {
+func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService, skillSvc service.SkillService, docSvc service.DocumentService) *Server {
 	s := &Server{
 		Queen:            q,
 		Port:             port,
@@ -69,6 +70,7 @@ func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessi
 		sessionService:   sessionSvc,
 		colmeiaService:   colmeiaSvc,
 		skillService:     skillSvc,
+		documentService:  docSvc,
 		clients:          make(map[*websocket.Conn]bool),
 		pendingApprovals: make(map[string]bool),
 	}
@@ -164,6 +166,8 @@ func (s *Server) Start() error {
 			sessions.POST("/:id/dispatch", s.handleSessionDispatch)
 			sessions.GET("/:id/agents", s.handleListSessionAgents)
 			sessions.POST("/:id/documents", s.handleUploadDocument)
+			sessions.GET("/:id/documents", s.handleListSessionDocuments)
+			sessions.DELETE("/:id/documents/:docId", s.handleDeleteDocument)
 		}
 
 		// Skill routes (catálogo global de skills reutilizáveis)
@@ -187,6 +191,8 @@ func (s *Server) Start() error {
 			colmeias.POST("/:id/dispatch", s.handleColmeiaDispatch)
 			colmeias.GET("/:id/historico", s.handleListHistoricoColmeia)
 			colmeias.POST("/:id/documents", s.handleColmeiaUploadDocument)
+			colmeias.GET("/:id/documents", s.handleListColmeiaDocuments)
+			colmeias.DELETE("/:id/documents/:docId", s.handleDeleteDocument)
 
 			// Skills associadas à colmeia
 			colmeias.GET("/:id/skills", s.handleListColmeiaSkills)
@@ -224,13 +230,13 @@ func (s *Server) setupMiddleware() gin.HandlerFunc {
 		configured, err := s.configService.IsConfigured()
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"error": "Erro ao verificar configuração.",
+				"error": "Failed to verify configuration.",
 			})
 			return
 		}
 		if !configured {
 			c.AbortWithStatusJSON(http.StatusPreconditionRequired, gin.H{
-				"error": "A colmeia ainda não foi configurada. Execute POST em /api/setup primeiro.",
+				"error": "Hive not yet configured. Call POST /api/setup first.",
 			})
 			return
 		}

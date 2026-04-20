@@ -84,6 +84,36 @@ func (q *QdrantHoneycomb) Store(ctx context.Context, collection string, id strin
 	return nil
 }
 
+func (q *QdrantHoneycomb) DeleteByFilter(ctx context.Context, collection string, filter map[string]string) error {
+	conditions := make([]*qdrant.Condition, 0, len(filter))
+	for k, v := range filter {
+		k, v := k, v
+		conditions = append(conditions, &qdrant.Condition{
+			ConditionOneOf: &qdrant.Condition_Field{
+				Field: &qdrant.FieldCondition{
+					Key: k,
+					Match: &qdrant.Match{
+						MatchValue: &qdrant.Match_Keyword{Keyword: v},
+					},
+				},
+			},
+		})
+	}
+
+	_, err := q.client.Delete(ctx, &qdrant.DeletePoints{
+		CollectionName: collection,
+		Points: &qdrant.PointsSelector{
+			PointsSelectorOneOf: &qdrant.PointsSelector_Filter{
+				Filter: &qdrant.Filter{Must: conditions},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete from qdrant collection %q: %w", collection, err)
+	}
+	return nil
+}
+
 func (q *QdrantHoneycomb) Search(ctx context.Context, collection string, query []float32, limit int) ([]Result, error) {
 	limitU := uint64(limit)
 	scored, err := q.client.Query(ctx, &qdrant.QueryPoints{

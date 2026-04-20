@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -10,8 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/damiaoterto/jandaira/internal/brain"
+	"github.com/damiaoterto/jandaira/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -36,26 +39,26 @@ func (s *Server) handleUploadDocument(c *gin.Context) {
 
 	// Verify the session exists.
 	if _, err := s.sessionService.GetSession(sessionID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Sessão não encontrada."})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found."})
 		return
 	}
 
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
 	if err := c.Request.ParseMultipartForm(maxUploadSize); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Arquivo muito grande ou formulário inválido (limite: 32 MB)."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File too large or invalid form (limit: 32 MB)."})
 		return
 	}
 
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Campo 'file' obrigatório (multipart/form-data)."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Field 'file' is required (multipart/form-data)."})
 		return
 	}
 
 	f, err := fileHeader.Open()
 	if err != nil {
 		log.Printf("ERROR handleUploadDocument open: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao abrir o arquivo enviado."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open uploaded file."})
 		return
 	}
 	defer f.Close()
@@ -63,7 +66,7 @@ func (s *Server) handleUploadDocument(c *gin.Context) {
 	data, err := io.ReadAll(f)
 	if err != nil {
 		log.Printf("ERROR handleUploadDocument read: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao ler o arquivo enviado."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read uploaded file."})
 		return
 	}
 
@@ -84,13 +87,13 @@ func (s *Server) handleUploadDocument(c *gin.Context) {
 		return
 	}
 	if len(text) == 0 {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Nenhum texto encontrado no documento."})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "No text found in document."})
 		return
 	}
 
 	chunks := brain.ChunkText(text)
 	if len(chunks) == 0 {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Não foi possível segmentar o texto do documento."})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Failed to segment document text."})
 		return
 	}
 
@@ -109,10 +112,11 @@ func (s *Server) handleUploadDocument(c *gin.Context) {
 	if embeddingUnavailable {
 		s.Broadcast(WsMessage{
 			Type:    "status",
-			Message: fmt.Sprintf("📄 Documento '%s' salvo no workspace (embedding não suportado pelo provedor atual): %s", fileHeader.Filename, workspacePath),
+			Message: fmt.Sprintf("📄 Document '%s' saved to workspace (embedding not supported by current provider): %s", fileHeader.Filename, workspacePath),
 		})
+		s.saveDocumentRecord(fileHeader.Filename, workspacePath, "", "session_id", sessionID, 0)
 		c.JSON(http.StatusCreated, gin.H{
-			"message":        "Documento salvo no workspace. Embedding não suportado pelo provedor atual (use OpenAI para busca semântica).",
+			"message":        "Document saved to workspace. Embedding not supported by current provider (use OpenAI for semantic search).",
 			"filename":       fileHeader.Filename,
 			"workspace_path": workspacePath,
 			"chunks":         0,
@@ -123,17 +127,19 @@ func (s *Server) handleUploadDocument(c *gin.Context) {
 	}
 
 	if stored == 0 {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Nenhum chunk foi salvo no banco vetorial. Verifique os logs."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No chunks saved to vector database. Check the logs."})
 		return
 	}
 
+	s.saveDocumentRecord(fileHeader.Filename, workspacePath, collection, "session_id", sessionID, stored)
+
 	s.Broadcast(WsMessage{
 		Type:    "status",
-		Message: fmt.Sprintf("📄 Documento '%s' indexado na memória: %d/%d chunks salvos. Workspace: %s", fileHeader.Filename, stored, len(chunks), workspacePath),
+		Message: fmt.Sprintf("📄 Document '%s' indexed in memory: %d/%d chunks saved. Workspace: %s", fileHeader.Filename, stored, len(chunks), workspacePath),
 	})
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":        "Documento indexado com sucesso.",
+		"message":        "Document indexed successfully.",
 		"filename":       fileHeader.Filename,
 		"workspace_path": workspacePath,
 		"chunks":         stored,
@@ -153,26 +159,26 @@ func (s *Server) handleColmeiaUploadDocument(c *gin.Context) {
 	colmeiaID := c.Param("id")
 
 	if _, err := s.colmeiaService.GetColmeia(colmeiaID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Colmeia não encontrada."})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Hive not found."})
 		return
 	}
 
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
 	if err := c.Request.ParseMultipartForm(maxUploadSize); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Arquivo muito grande ou formulário inválido (limite: 32 MB)."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File too large or invalid form (limit: 32 MB)."})
 		return
 	}
 
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Campo 'file' obrigatório (multipart/form-data)."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Field 'file' is required (multipart/form-data)."})
 		return
 	}
 
 	f, err := fileHeader.Open()
 	if err != nil {
 		log.Printf("ERROR handleColmeiaUploadDocument open: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao abrir o arquivo enviado."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open uploaded file."})
 		return
 	}
 	defer f.Close()
@@ -180,7 +186,7 @@ func (s *Server) handleColmeiaUploadDocument(c *gin.Context) {
 	data, err := io.ReadAll(f)
 	if err != nil {
 		log.Printf("ERROR handleColmeiaUploadDocument read: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao ler o arquivo enviado."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read uploaded file."})
 		return
 	}
 
@@ -190,13 +196,13 @@ func (s *Server) handleColmeiaUploadDocument(c *gin.Context) {
 		return
 	}
 	if len(text) == 0 {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Nenhum texto encontrado no documento."})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "No text found in document."})
 		return
 	}
 
 	chunks := brain.ChunkText(text)
 	if len(chunks) == 0 {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Não foi possível segmentar o texto do documento."})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Failed to segment document text."})
 		return
 	}
 
@@ -216,10 +222,11 @@ func (s *Server) handleColmeiaUploadDocument(c *gin.Context) {
 	if embeddingUnavailable {
 		s.Broadcast(WsMessage{
 			Type:    "status",
-			Message: fmt.Sprintf("📄 Documento '%s' salvo no workspace da colmeia (embedding não suportado pelo provedor atual): %s", fileHeader.Filename, workspacePath),
+			Message: fmt.Sprintf("📄 Document '%s' saved to hive workspace (embedding not supported by current provider): %s", fileHeader.Filename, workspacePath),
 		})
+		s.saveDocumentRecord(fileHeader.Filename, workspacePath, "", "colmeia_id", colmeiaID, 0)
 		c.JSON(http.StatusCreated, gin.H{
-			"message":        "Documento salvo no workspace. Embedding não suportado pelo provedor atual (use OpenAI para busca semântica).",
+			"message":        "Document saved to workspace. Embedding not supported by current provider (use OpenAI for semantic search).",
 			"filename":       fileHeader.Filename,
 			"workspace_path": workspacePath,
 			"chunks":         0,
@@ -230,23 +237,114 @@ func (s *Server) handleColmeiaUploadDocument(c *gin.Context) {
 	}
 
 	if stored == 0 {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Nenhum chunk foi salvo no banco vetorial. Verifique os logs."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No chunks saved to vector database. Check the logs."})
 		return
 	}
 
+	s.saveDocumentRecord(fileHeader.Filename, workspacePath, collection, "colmeia_id", colmeiaID, stored)
+
 	s.Broadcast(WsMessage{
 		Type:    "status",
-		Message: fmt.Sprintf("📄 Documento '%s' indexado na memória da colmeia: %d/%d chunks salvos. Workspace: %s", fileHeader.Filename, stored, len(chunks), workspacePath),
+		Message: fmt.Sprintf("📄 Document '%s' indexed in hive memory: %d/%d chunks saved. Workspace: %s", fileHeader.Filename, stored, len(chunks), workspacePath),
 	})
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":        "Documento indexado com sucesso na colmeia.",
+		"message":        "Document indexed successfully in hive.",
 		"filename":       fileHeader.Filename,
 		"workspace_path": workspacePath,
 		"chunks":         stored,
 		"collection":     collection,
 		"colmeia_id":     colmeiaID,
 	})
+}
+
+// handleListSessionDocuments lists all documents uploaded to a session.
+//
+//	GET /api/sessions/:id/documents
+func (s *Server) handleListSessionDocuments(c *gin.Context) {
+	sessionID := c.Param("id")
+	if _, err := s.sessionService.GetSession(sessionID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found."})
+		return
+	}
+	docs, err := s.documentService.ListByScope("session_id", sessionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list documents."})
+		return
+	}
+	c.JSON(http.StatusOK, docs)
+}
+
+// handleListColmeiaDocuments lists all documents uploaded to a colmeia.
+//
+//	GET /api/colmeias/:id/documents
+func (s *Server) handleListColmeiaDocuments(c *gin.Context) {
+	colmeiaID := c.Param("id")
+	if _, err := s.colmeiaService.GetColmeia(colmeiaID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Hive not found."})
+		return
+	}
+	docs, err := s.documentService.ListByScope("colmeia_id", colmeiaID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list documents."})
+		return
+	}
+	c.JSON(http.StatusOK, docs)
+}
+
+// handleDeleteDocument deletes a document record from SQLite, its chunks from
+// Qdrant (when a collection is recorded), and the workspace file from disk.
+//
+//	DELETE /api/sessions/:id/documents/:docId
+//	DELETE /api/colmeias/:id/documents/:docId
+func (s *Server) handleDeleteDocument(c *gin.Context) {
+	docID := c.Param("docId")
+
+	doc, err := s.documentService.GetDocument(docID)
+	if err != nil {
+		if errors.Is(err, service.ErrDocumentNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Document not found."})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch document."})
+		return
+	}
+
+	// Delete chunks from Qdrant when they were indexed.
+	if doc.Collection != "" && s.Queen.Honeycomb != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		filter := map[string]string{
+			"filename": doc.Filename,
+			doc.ScopeKey: doc.ScopeVal,
+		}
+		if qdErr := s.Queen.Honeycomb.DeleteByFilter(ctx, doc.Collection, filter); qdErr != nil {
+			log.Printf("WARN handleDeleteDocument Qdrant: %v", qdErr)
+			// Non-fatal: proceed with SQLite and disk cleanup.
+		}
+	}
+
+	// Remove workspace file from disk.
+	if doc.WorkspacePath != "" {
+		if rmErr := os.Remove(doc.WorkspacePath); rmErr != nil && !os.IsNotExist(rmErr) {
+			log.Printf("WARN handleDeleteDocument os.Remove: %v", rmErr)
+		}
+	}
+
+	// Remove SQLite record.
+	if err := s.documentService.Delete(docID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete document."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Document deleted successfully."})
+}
+
+// saveDocumentRecord persists a Document record to SQLite. Non-fatal on error.
+func (s *Server) saveDocumentRecord(filename, workspacePath, collection, scopeKey, scopeVal string, chunks int) {
+	if _, err := s.documentService.Create(filename, workspacePath, collection, scopeKey, scopeVal, chunks); err != nil {
+		log.Printf("WARN saveDocumentRecord: %v", err)
+	}
 }
 
 // storeChunksInVectorDB embeds each chunk and upserts it into Qdrant under the
@@ -290,11 +388,11 @@ func storeChunksInVectorDB(
 
 		docID := fmt.Sprintf("doc-%s-%s-%d-%d", scopeVal, sanitizeID(filename), i, time.Now().UnixNano())
 		metadata := map[string]string{
-			"content":        chunk,
+			"content":        toValidUTF8(chunk),
 			"type":           "document_chunk",
-			"filename":       filename,
-			scopeKey:         scopeVal,
-			"workspace_path": workspacePath,
+			"filename":       toValidUTF8(filename),
+			scopeKey:         toValidUTF8(scopeVal),
+			"workspace_path": toValidUTF8(workspacePath),
 			"chunk":          fmt.Sprintf("%d", i),
 			"total":          fmt.Sprintf("%d", len(chunks)),
 		}
@@ -307,6 +405,16 @@ func storeChunksInVectorDB(
 	}
 
 	return stored, false
+}
+
+// toValidUTF8 returns s with any invalid UTF-8 sequences replaced by the
+// Unicode replacement character so Qdrant does not panic on non-UTF-8 input
+// (e.g. Latin-1 encoded CSV/PDF files).
+func toValidUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	return strings.ToValidUTF8(s, "\uFFFD")
 }
 
 // saveColmeiaTextToDisk writes extracted text to workspace/colmeias/{colmeiaID}/{stem}.txt.

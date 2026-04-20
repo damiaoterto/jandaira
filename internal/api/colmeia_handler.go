@@ -24,7 +24,7 @@ func (s *Server) handleListColmeias(c *gin.Context) {
 	colmeias, err := s.colmeiaService.ListColmeias()
 	if err != nil {
 		log.Printf("ERROR handleListColmeias: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao listar colmeias."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list hives."})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"colmeias": colmeias, "total": len(colmeias)})
@@ -33,7 +33,7 @@ func (s *Server) handleListColmeias(c *gin.Context) {
 // handleCreateColmeia creates a new persistent colmeia.
 //
 //	POST /api/colmeias
-//	Body: { "name": "Minha Colmeia", "description": "...", "queen_managed": true }
+//	Body: { "name": "My Hive", "description": "...", "queen_managed": true }
 func (s *Server) handleCreateColmeia(c *gin.Context) {
 	var req struct {
 		Name         string `json:"name"          binding:"required"`
@@ -41,7 +41,7 @@ func (s *Server) handleCreateColmeia(c *gin.Context) {
 		QueenManaged *bool  `json:"queen_managed"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "O campo 'name' é obrigatório."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Field 'name' is required."})
 		return
 	}
 
@@ -53,10 +53,10 @@ func (s *Server) handleCreateColmeia(c *gin.Context) {
 	colmeia, err := s.colmeiaService.CreateColmeia(req.Name, req.Description, queenManaged)
 	if err != nil {
 		log.Printf("ERROR handleCreateColmeia: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao criar colmeia."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create hive."})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"message": "Colmeia criada com sucesso.", "colmeia": colmeia})
+	c.JSON(http.StatusCreated, gin.H{"message": "Hive created successfully.", "colmeia": colmeia})
 }
 
 // handleGetColmeia returns a colmeia with its agents.
@@ -66,11 +66,11 @@ func (s *Server) handleGetColmeia(c *gin.Context) {
 	colmeia, err := s.colmeiaService.GetColmeia(c.Param("id"))
 	if err != nil {
 		if errors.Is(err, service.ErrColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Colmeia não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Hive not found."})
 			return
 		}
 		log.Printf("ERROR handleGetColmeia id=%s: %v", c.Param("id"), err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar colmeia."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch hive."})
 		return
 	}
 	c.JSON(http.StatusOK, colmeia)
@@ -88,7 +88,7 @@ func (s *Server) handleUpdateColmeia(c *gin.Context) {
 		QueenManaged *bool  `json:"queen_managed"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "O campo 'name' é obrigatório."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Field 'name' is required."})
 		return
 	}
 
@@ -100,14 +100,14 @@ func (s *Server) handleUpdateColmeia(c *gin.Context) {
 	colmeia, err := s.colmeiaService.UpdateColmeia(id, req.Name, req.Description, queenManaged)
 	if err != nil {
 		if errors.Is(err, service.ErrColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Colmeia não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Hive not found."})
 			return
 		}
 		log.Printf("ERROR handleUpdateColmeia id=%s: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao atualizar colmeia."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update hive."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Colmeia atualizada.", "colmeia": colmeia})
+	c.JSON(http.StatusOK, gin.H{"message": "Hive updated.", "colmeia": colmeia})
 }
 
 // handleDeleteColmeia removes a colmeia along with all its agents and history.
@@ -117,14 +117,14 @@ func (s *Server) handleDeleteColmeia(c *gin.Context) {
 	id := c.Param("id")
 	if err := s.colmeiaService.DeleteColmeia(id); err != nil {
 		if errors.Is(err, service.ErrColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Colmeia não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Hive not found."})
 			return
 		}
 		log.Printf("ERROR handleDeleteColmeia id=%s: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao deletar colmeia."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete hive."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Colmeia, agentes e histórico removidos com sucesso."})
+	c.JSON(http.StatusOK, gin.H{"message": "Hive, agents and history deleted successfully."})
 }
 
 // ─── Colmeia Agents ────────────────────────────────────────────────────────────
@@ -136,11 +136,11 @@ func (s *Server) handleListAgentesColmeia(c *gin.Context) {
 	agentes, err := s.colmeiaService.ListAgentes(c.Param("id"))
 	if err != nil {
 		if errors.Is(err, service.ErrColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Colmeia não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Hive not found."})
 			return
 		}
 		log.Printf("ERROR handleListAgentesColmeia id=%s: %v", c.Param("id"), err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao listar agentes."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list agents."})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"agentes": agentes, "total": len(agentes)})
@@ -152,17 +152,17 @@ func (s *Server) handleListAgentesColmeia(c *gin.Context) {
 func (s *Server) handleGetAgenteColmeia(c *gin.Context) {
 	agenteID, err := strconv.ParseUint(c.Param("agentId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de agente inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent ID."})
 		return
 	}
 	agente, err := s.colmeiaService.GetAgente(uint(agenteID))
 	if err != nil {
 		if errors.Is(err, service.ErrAgenteColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Agente não encontrado."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Agent not found."})
 			return
 		}
 		log.Printf("ERROR handleGetAgenteColmeia agente=%d: %v", agenteID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar agente."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch agent."})
 		return
 	}
 	c.JSON(http.StatusOK, agente)
@@ -173,7 +173,7 @@ func (s *Server) handleGetAgenteColmeia(c *gin.Context) {
 // automatically by the Queen in that mode and must not be pre-defined manually.
 //
 //	POST /api/colmeias/:id/agentes
-//	Body: { "name": "Analista", "system_prompt": "...", "allowed_tools": ["web_search"] }
+//	Body: { "name": "Analyst", "system_prompt": "...", "allowed_tools": ["web_search"] }
 func (s *Server) handleAddAgenteColmeia(c *gin.Context) {
 	colmeiaID := c.Param("id")
 	var req struct {
@@ -182,24 +182,24 @@ func (s *Server) handleAddAgenteColmeia(c *gin.Context) {
 		AllowedTools []string `json:"allowed_tools"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Os campos 'name' e 'system_prompt' são obrigatórios."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Fields 'name' and 'system_prompt' are required."})
 		return
 	}
 
 	colmeia, err := s.colmeiaService.GetColmeia(colmeiaID)
 	if err != nil {
 		if errors.Is(err, service.ErrColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Colmeia não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Hive not found."})
 			return
 		}
 		log.Printf("ERROR handleAddAgenteColmeia GetColmeia colmeia=%s: %v", colmeiaID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar colmeia."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch hive."})
 		return
 	}
 
 	if colmeia.QueenManaged {
 		c.JSON(http.StatusConflict, gin.H{
-			"error": "Colmeia gerenciada pela Rainha não aceita agentes pré-definidos. Defina queen_managed=false para usar agentes customizados.",
+			"error": "Queen-managed hive does not accept pre-defined agents. Set queen_managed=false to use custom agents.",
 		})
 		return
 	}
@@ -207,14 +207,14 @@ func (s *Server) handleAddAgenteColmeia(c *gin.Context) {
 	agente, err := s.colmeiaService.AddAgente(colmeiaID, req.Name, req.SystemPrompt, req.AllowedTools)
 	if err != nil {
 		if errors.Is(err, service.ErrColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Colmeia não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Hive not found."})
 			return
 		}
 		log.Printf("ERROR handleAddAgenteColmeia colmeia=%s: %v", colmeiaID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao adicionar agente."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add agent."})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"message": "Agente adicionado à colmeia.", "agente": agente})
+	c.JSON(http.StatusCreated, gin.H{"message": "Agent added to hive.", "agente": agente})
 }
 
 // handleUpdateAgenteColmeia updates an agent's name, system prompt, and allowed tools.
@@ -224,7 +224,7 @@ func (s *Server) handleAddAgenteColmeia(c *gin.Context) {
 func (s *Server) handleUpdateAgenteColmeia(c *gin.Context) {
 	agenteID, err := strconv.ParseUint(c.Param("agentId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de agente inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent ID."})
 		return
 	}
 	var req struct {
@@ -233,21 +233,21 @@ func (s *Server) handleUpdateAgenteColmeia(c *gin.Context) {
 		AllowedTools []string `json:"allowed_tools"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Os campos 'name' e 'system_prompt' são obrigatórios."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Fields 'name' and 'system_prompt' are required."})
 		return
 	}
 
 	agente, err := s.colmeiaService.UpdateAgente(uint(agenteID), req.Name, req.SystemPrompt, req.AllowedTools)
 	if err != nil {
 		if errors.Is(err, service.ErrAgenteColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Agente não encontrado."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Agent not found."})
 			return
 		}
 		log.Printf("ERROR handleUpdateAgenteColmeia agente=%d: %v", agenteID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao atualizar agente."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update agent."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Agente atualizado.", "agente": agente})
+	c.JSON(http.StatusOK, gin.H{"message": "Agent updated.", "agente": agente})
 }
 
 // handleRemoveAgenteColmeia removes an agent from the colmeia.
@@ -256,19 +256,19 @@ func (s *Server) handleUpdateAgenteColmeia(c *gin.Context) {
 func (s *Server) handleRemoveAgenteColmeia(c *gin.Context) {
 	agenteID, err := strconv.ParseUint(c.Param("agentId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de agente inválido."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent ID."})
 		return
 	}
 	if err := s.colmeiaService.RemoveAgente(uint(agenteID)); err != nil {
 		if errors.Is(err, service.ErrAgenteColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Agente não encontrado."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Agent not found."})
 			return
 		}
 		log.Printf("ERROR handleRemoveAgenteColmeia agente=%d: %v", agenteID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao remover agente."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove agent."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Agente removido da colmeia."})
+	c.JSON(http.StatusOK, gin.H{"message": "Agent removed from hive."})
 }
 
 // ─── History ───────────────────────────────────────────────────────────────────
@@ -280,11 +280,11 @@ func (s *Server) handleListHistoricoColmeia(c *gin.Context) {
 	historico, err := s.colmeiaService.ListHistorico(c.Param("id"))
 	if err != nil {
 		if errors.Is(err, service.ErrColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Colmeia não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Hive not found."})
 			return
 		}
 		log.Printf("ERROR handleListHistoricoColmeia id=%s: %v", c.Param("id"), err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar histórico."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch history."})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"historico": historico, "total": len(historico)})
@@ -305,11 +305,11 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 	colmeia, err := s.colmeiaService.GetColmeia(colmeiaID)
 	if err != nil {
 		if errors.Is(err, service.ErrColmeiaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Colmeia não encontrada."})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Hive not found."})
 			return
 		}
 		log.Printf("ERROR handleColmeiaDispatch GetColmeia id=%s: %v", colmeiaID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar colmeia."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch hive."})
 		return
 	}
 
@@ -317,7 +317,7 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 		Goal string `json:"goal" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "O campo 'goal' é obrigatório."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Field 'goal' is required."})
 		return
 	}
 
@@ -338,7 +338,7 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 	historico, err := s.colmeiaService.CreateHistorico(colmeiaID, req.Goal)
 	if err != nil {
 		log.Printf("ERROR handleColmeiaDispatch CreateHistorico id=%s: %v", colmeiaID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao registrar despacho."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register dispatch."})
 		return
 	}
 
@@ -398,13 +398,13 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 		if err != nil {
 			_ = s.colmeiaService.FailHistorico(historico.ID)
 			log.Printf("ERROR handleColmeiaDispatch AssembleSwarm colmeia=%s: %v", colmeiaID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Falha ao planejar o enxame: %v", err)})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to plan the swarm: %v", err)})
 			return
 		}
 
 		s.Broadcast(WsMessage{
 			Type:    "status",
-			Message: fmt.Sprintf("👑 Rainha montou %d agente(s) para '%s'.", len(swarmSpecialists), colmeia.Name),
+			Message: fmt.Sprintf("👑 Queen assembled %d agent(s) for '%s'.", len(swarmSpecialists), colmeia.Name),
 		})
 
 		go func() {
@@ -426,12 +426,12 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 				s.Broadcast(WsMessage{Type: "error", Message: dispatchErr.Error()})
 			case <-ctx.Done():
 				_ = s.colmeiaService.FailHistorico(historico.ID)
-				s.Broadcast(WsMessage{Type: "error", Message: "Tempo limite da missão atingido."})
+				s.Broadcast(WsMessage{Type: "error", Message: "Mission timeout reached."})
 			}
 		}()
 
 		c.JSON(http.StatusAccepted, gin.H{
-			"message":      "Missão despachada. Acompanhe o progresso via WebSocket.",
+			"message":      "Mission dispatched. Follow progress via WebSocket.",
 			"colmeia_id":   colmeiaID,
 			"historico_id": historico.ID,
 			"agents":       len(swarmSpecialists),
@@ -444,7 +444,7 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 	if len(colmeia.Agentes) == 0 {
 		_ = s.colmeiaService.FailHistorico(historico.ID)
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "A colmeia não possui agentes definidos. Adicione agentes via POST /api/colmeias/:id/agentes ou ative queen_managed.",
+			"error": "Hive has no defined agents. Add agents via POST /api/colmeias/:id/agentes or enable queen_managed.",
 		})
 		return
 	}
@@ -453,7 +453,7 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 
 	s.Broadcast(WsMessage{
 		Type:    "status",
-		Message: fmt.Sprintf("🐝 Colmeia '%s' usando %d agente(s) pré-definido(s).", colmeia.Name, len(predefinedSpecialists)),
+		Message: fmt.Sprintf("🐝 Hive '%s' using %d pre-defined agent(s).", colmeia.Name, len(predefinedSpecialists)),
 	})
 
 	go func() {
@@ -475,12 +475,12 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 			s.Broadcast(WsMessage{Type: "error", Message: dispatchErr.Error()})
 		case <-ctx.Done():
 			_ = s.colmeiaService.FailHistorico(historico.ID)
-			s.Broadcast(WsMessage{Type: "error", Message: "Tempo limite da missão atingido."})
+			s.Broadcast(WsMessage{Type: "error", Message: "Mission timeout reached."})
 		}
 	}()
 
 	c.JSON(http.StatusAccepted, gin.H{
-		"message":      "Missão despachada. Acompanhe o progresso via WebSocket.",
+		"message":      "Mission dispatched. Follow progress via WebSocket.",
 		"colmeia_id":   colmeiaID,
 		"historico_id": historico.ID,
 		"agents":       len(predefinedSpecialists),

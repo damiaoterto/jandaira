@@ -49,6 +49,9 @@ func main() {
 	skillRepo := repository.NewSkillRepository(db)
 	skillService := service.NewSkillService(skillRepo)
 
+	documentRepo := repository.NewDocumentRepository(db)
+	documentService := service.NewDocumentService(documentRepo)
+
 	cfg, err := cfgService.Load()
 	if err != nil && !errors.Is(err, service.ErrNotConfigured) {
 		fmt.Printf("Erro ao carregar configuração: %v\n", err)
@@ -182,7 +185,7 @@ func main() {
 		})
 	}
 
-	server := api.NewServer(queen, *port, cfgService, sessionService, colmeiaService, skillService)
+	server := api.NewServer(queen, *port, cfgService, sessionService, colmeiaService, skillService, documentService)
 
 	queen.LogFunc = func(msg string) {
 		server.Broadcast(api.WsMessage{Type: "status", Message: msg})

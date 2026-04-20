@@ -17,7 +17,7 @@ import (
 func (s *Server) handleGetConfig(c *gin.Context) {
 	cfg, err := s.configService.Load()
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Configuração não encontrada."})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Configuration not found."})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -42,13 +42,13 @@ func (s *Server) handleUpdateConfig(c *gin.Context) {
 		APIKey string `json:"api_key"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Parâmetros inválidos."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid parameters."})
 		return
 	}
 
 	cfg, err := s.configService.Load()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao carregar configuração."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load configuration."})
 		return
 	}
 
@@ -66,7 +66,7 @@ func (s *Server) handleUpdateConfig(c *gin.Context) {
 	}
 
 	if err := s.configService.Save(cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao salvar configuração."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration."})
 		return
 	}
 
@@ -127,7 +127,7 @@ func (s *Server) handleUpdateConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":  "Configuração atualizada com sucesso.",
+		"message":  "Configuration updated successfully.",
 		"provider": cfg.Provider,
 		"model":    cfg.Model,
 		"brain":    s.Queen.Brain.GetProviderName(),
