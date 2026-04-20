@@ -18,14 +18,99 @@ type ExecuteCodeTool struct{}
 func (t *ExecuteCodeTool) Name() string { return "execute_code" }
 
 func (t *ExecuteCodeTool) Description() string {
-	return `Compila código Go para WebAssembly e executa numa Sandbox isolada. Retorna stdout/stderr.
+	return `Compiles Go code to WebAssembly and executes it in an isolated sandbox. Returns stdout/stderr.
 
-REGRAS:
-1. Passe o código Go completo no campo "code" (package main + func main).
-2. Use apenas stdlib Go — sem imports externos (CGO desabilitado em WASM).
-3. Passe valores dinâmicos via os.Args[1:] no campo "args" — nunca hardcode valores.
-4. Paths de arquivo dentro do código são relativos ao diretório de trabalho (/app).
-5. NUNCA descreva o que o código faria — sempre chame esta tool para executar.`
+MANDATORY RULES:
+1. Pass complete Go source in "code": must include "package main" and "func main()".
+2. stdlib only — no external imports (CGO disabled in WASM).
+3. Pass dynamic values via os.Args[1:] in "args" — never hardcode variable data.
+4. File paths inside the code are relative to the mounted working directory (/app).
+5. NEVER describe what the code would do — ALWAYS call this tool to execute it.
+
+CANONICAL STRUCTURE (always use as base):
+
+  package main
+
+  import (
+      "errors"
+      "fmt"
+      "os"
+  )
+
+  func main() {
+      if err := run(os.Args[1:]); err != nil {
+          fmt.Fprintf(os.Stderr, "error: %v\n", err)
+          os.Exit(1)
+      }
+  }
+
+  // run holds all logic — never call os.Exit here, return error instead.
+  func run(args []string) error {
+      if len(args) < 1 {
+          return errors.New("usage: program <arg1>")
+      }
+      // implementation
+      return nil
+  }
+
+ERROR HANDLING (mandatory):
+- Handle ALL errors; never use _ on I/O or parsing errors.
+- Propagate with context: fmt.Errorf("operation X: %w", err)
+- Sentinel errors: var ErrNotFound = errors.New("not found")
+- Check type: errors.Is(err, ErrNotFound) / errors.As(err, &target)
+- os.Exit(1) only in main(); all other functions return error.
+
+CONCURRENCY (when needed):
+- Pass context.Context to every blocking operation; always respect ctx.Done().
+- Every goroutine must have a defined lifetime — use sync.WaitGroup or an error channel.
+- Buffered error channel: errCh := make(chan error, numWorkers)
+- Worker pattern with cancellation:
+
+  func worker(ctx context.Context, jobs <-chan Job, results chan<- Result, errCh chan<- error) {
+      for {
+          select {
+          case <-ctx.Done():
+              errCh <- fmt.Errorf("worker cancelled: %w", ctx.Err())
+              return
+          case job, ok := <-jobs:
+              if !ok {
+                  return // jobs channel closed, clean exit
+              }
+              res, err := process(ctx, job)
+              if err != nil {
+                  errCh <- fmt.Errorf("process job %v: %w", job.ID, err)
+                  return
+              }
+              results <- res
+          }
+      }
+  }
+
+- Use sync.Mutex for shared state; sync.RWMutex when reads dominate.
+- Prefer channels for communication; Mutex for state protection.
+- Write as if -race is always active — no unsynchronised shared writes.
+
+INTERFACES AND DESIGN:
+- Define interfaces on the consumer side, not the producer.
+- Keep interfaces small and focused (1-3 methods); compose via embedding.
+- Accept interfaces, return concrete types.
+- Functional options for structs with multiple optional parameters:
+
+  type Option func(*Config)
+  func WithTimeout(d time.Duration) Option { return func(c *Config) { c.timeout = d } }
+
+COLLECTIONS AND STRINGS:
+- Slices with known capacity: make([]T, 0, n)
+- Maps: initialise with make(map[K]V); check existence with v, ok := m[k]
+- String concatenation in loops: strings.Builder — never += in a loop
+- Numeric parsing: strconv.Atoi / strconv.ParseFloat — not fmt.Sscanf
+- Prefer switch over if-else chains with 3+ branches
+
+I/O AND RESOURCES:
+- defer to close resources immediately after opening them
+- bufio.Scanner / bufio.NewReader for line-by-line input
+- Output always ends with \n; use fmt.Println or fmt.Fprintf(os.Stdout, "...\n", ...)
+- Check write errors on os.Stdout when output is critical`
 }
 
 func (t *ExecuteCodeTool) Parameters() map[string]any {
@@ -47,74 +132,99 @@ func (t *ExecuteCodeTool) Parameters() map[string]any {
 }
 
 func (t *ExecuteCodeTool) Execute(ctx context.Context, argsJSON string) (string, error) {
-	var args struct {
+	var input struct {
 		Code string   `json:"code"`
 		Args []string `json:"args"`
 	}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "", fmt.Errorf("erro ao ler argumentos: %w", err)
+	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+		return "", fmt.Errorf("ler argumentos: %w", err)
 	}
-	if strings.TrimSpace(args.Code) == "" {
+	if strings.TrimSpace(input.Code) == "" {
 		return "", fmt.Errorf("campo 'code' obrigatório")
 	}
 
 	tmpDir, err := os.MkdirTemp("", "wasm-*")
 	if err != nil {
-		return "", fmt.Errorf("erro ao criar dir temporário: %w", err)
+		return "", fmt.Errorf("criar dir temporário: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte(args.Code), 0644); err != nil {
-		return "", fmt.Errorf("erro ao gravar código: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module sandbox\n\ngo 1.21\n"), 0644); err != nil {
-		return "", fmt.Errorf("erro ao criar go.mod: %w", err)
+	wasmBinary, err := buildWasm(ctx, tmpDir, input.Code)
+	if err != nil {
+		return "", err
 	}
 
-	wasmFile := filepath.Join(tmpDir, "main.wasm")
-	homeDir, _ := os.UserHomeDir()
+	return runInSandbox(ctx, wasmBinary, input.Args)
+}
 
-	buildCmd := exec.CommandContext(ctx, "go", "build", "-o", wasmFile, filepath.Join(tmpDir, "main.go"))
-	buildCmd.Env = append(os.Environ(),
+func buildWasm(ctx context.Context, dir, code string) ([]byte, error) {
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0o644); err != nil {
+		return nil, fmt.Errorf("gravar código: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module sandbox\n\ngo 1.21\n"), 0o644); err != nil {
+		return nil, fmt.Errorf("criar go.mod: %w", err)
+	}
+
+	wasmFile := filepath.Join(dir, "main.wasm")
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("obter home dir: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", wasmFile, filepath.Join(dir, "main.go"))
+	cmd.Env = append(os.Environ(),
 		"GOOS=wasip1",
 		"GOARCH=wasm",
 		"GOCACHE="+filepath.Join(homeDir, ".cache", "go-build"),
 	)
-	out, err := buildCmd.CombinedOutput()
-	fmt.Printf("[execute_code] go build output:\n%s\n", string(out))
-	if err != nil {
-		return "", fmt.Errorf("erro de compilação:\n%s", string(out))
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("compilação:\n%s", string(out))
 	}
 
-	wasmBinary, err := os.ReadFile(wasmFile)
+	data, err := os.ReadFile(wasmFile)
 	if err != nil {
-		return "", fmt.Errorf("erro ao ler binário wasm: %w", err)
+		return nil, fmt.Errorf("ler binário wasm: %w", err)
 	}
+	return data, nil
+}
 
+func runInSandbox(ctx context.Context, wasmBinary []byte, args []string) (string, error) {
 	cell, err := security.NewCell(ctx)
 	if err != nil {
-		return "", fmt.Errorf("erro ao criar sandbox: %w", err)
+		return "", fmt.Errorf("criar sandbox: %w", err)
 	}
 	defer cell.Close(ctx)
 
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("obter cwd: %w", err)
+	}
 	cell.WithDirMount(cwd)
 
 	var stdout, stderr bytes.Buffer
 	cell.WithOutput(&stdout, &stderr)
 
-	execErr := cell.Execute(ctx, wasmBinary, args.Args)
+	execArgs := make([]string, 0, len(args)+1)
+	execArgs = append(execArgs, "sandbox")
+	execArgs = append(execArgs, args...)
 
-	result := stdout.String()
+	execErr := cell.Execute(ctx, wasmBinary, execArgs)
+
+	var sb strings.Builder
+	sb.WriteString(stdout.String())
+
 	if execErr != nil && !strings.Contains(execErr.Error(), "invalid magic number") {
-		result += fmt.Sprintf("\n[Erro na Sandbox]: %v", execErr)
+		fmt.Fprintf(&sb, "\n[Erro na Sandbox]: %v", execErr)
 	}
 	if stderr.Len() > 0 {
-		result += fmt.Sprintf("\n[Stderr]: %s", stderr.String())
-	}
-	if result == "" {
-		result = "Executou com sucesso (sem output)."
+		fmt.Fprintf(&sb, "\n[Stderr]: %s", stderr.String())
 	}
 
+	result := sb.String()
+	if result == "" {
+		return "Executou com sucesso (sem output).", nil
+	}
 	return result, nil
 }

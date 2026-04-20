@@ -137,7 +137,7 @@ func (s *Server) corsMiddleware() gin.HandlerFunc {
 }
 
 func (s *Server) Start() error {
-	gin.SetMode(gin.DebugMode)
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
 	r.Use(s.corsMiddleware())

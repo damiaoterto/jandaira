@@ -20,7 +20,7 @@ type Colmeia struct {
 	ID           string              `gorm:"primaryKey;type:varchar(36)"                          json:"id"`
 	Name         string              `gorm:"type:varchar(150);not null"                           json:"name"`
 	Description  string              `gorm:"type:text"                                            json:"description,omitempty"`
-	QueenManaged bool                `gorm:"default:true"                                         json:"queen_managed"`
+	QueenManaged bool                `gorm:"not null"                                             json:"queen_managed"`
 	CreatedAt    time.Time           `                                                            json:"created_at"`
 	UpdatedAt    time.Time           `                                                            json:"updated_at"`
 	Agentes      []AgenteColmeia     `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"agentes,omitempty"`

@@ -33,7 +33,7 @@ func NewColmeiaRepository(db *gorm.DB) ColmeiaRepository {
 }
 
 func (r *colmeiaRepository) Create(c *model.Colmeia) error {
-	return r.db.Create(c).Error
+	return r.db.Select("id", "name", "description", "queen_managed").Create(c).Error
 }
 
 func (r *colmeiaRepository) FindByID(id string) (*model.Colmeia, error) {
