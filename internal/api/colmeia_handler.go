@@ -348,7 +348,8 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 		maxWorkers = cfg.MaxAgents
 	}
 	// Each colmeia has its own vector memory collection scoped by its ID.
-	groupID := colmeiaID
+	// Must match the collection name used in handleColmeiaUploadDocument.
+	groupID := "colmeia-" + sanitizeID(colmeiaID)
 
 	// Ensure the colmeia's group is registered in the hive before dispatching.
 	if !s.Queen.IsSwarmRegistered(groupID) {
@@ -370,7 +371,7 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 
 		queryVec, err := s.Queen.Brain.Embed(memCtx, req.Goal)
 		if err == nil {
-			results, err := s.Queen.Honeycomb.Search(memCtx, colmeiaID, queryVec, 3)
+			results, err := s.Queen.Honeycomb.Search(memCtx, groupID, queryVec, 3)
 			if err == nil && len(results) > 0 {
 				var sb strings.Builder
 				sb.WriteString(enrichedGoal)
@@ -388,6 +389,9 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 			}
 		}
 	}
+
+	// Inject collection name so agents can pass it explicitly to search_memory.
+	enrichedGoal = fmt.Sprintf("[HIVE MEMORY COLLECTION: %s]\n\n%s", groupID, enrichedGoal)
 
 	if colmeia.QueenManaged {
 		// Queen assembles the swarm automatically from the goal.

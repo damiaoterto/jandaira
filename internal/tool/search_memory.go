@@ -36,6 +36,10 @@ func (t *SearchMemoryTool) Parameters() map[string]interface{} {
 				"type":        "string",
 				"description": "The question or concept to search for in memory.",
 			},
+			"collection": map[string]interface{}{
+				"type":        "string",
+				"description": "Optional. The memory collection to search. Use the value from [HIVE MEMORY COLLECTION: ...] in your context if present.",
+			},
 		},
 		"required": []string{"query"},
 	}
@@ -43,10 +47,16 @@ func (t *SearchMemoryTool) Parameters() map[string]interface{} {
 
 func (t *SearchMemoryTool) Execute(ctx context.Context, argsJSON string) (string, error) {
 	var args struct {
-		Query string `json:"query"`
+		Query      string `json:"query"`
+		Collection string `json:"collection"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	collection := t.Collection
+	if args.Collection != "" {
+		collection = args.Collection
 	}
 
 	vector, embedErr := t.Brain.Embed(ctx, args.Query)
@@ -54,7 +64,7 @@ func (t *SearchMemoryTool) Execute(ctx context.Context, argsJSON string) (string
 		return fmt.Sprintf("Semantic search unavailable (embedding error: %v). Store operations still work in degraded mode.", embedErr), nil
 	}
 
-	results, err := t.Honeycomb.Search(ctx, t.Collection, vector, 3)
+	results, err := t.Honeycomb.Search(ctx, collection, vector, 3)
 	if err != nil {
 		return "", fmt.Errorf("vector search failed: %w", err)
 	}

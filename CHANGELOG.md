@@ -19,6 +19,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ### Fixed
 
+- **Colmeia document search returning empty results** (`internal/api/colmeia_handler.go`, `internal/tool/search_memory.go`): documents uploaded to a hive were indexed into Qdrant collection `colmeia-{id}` but all search paths used the bare `colmeiaID` as collection name — pre-seed in `handleColmeiaDispatch`, pre-seed in `DispatchWorkflow`, and `SearchMemoryTool` all missed the indexed chunks. Fixed: `groupID` in `handleColmeiaDispatch` now uses `"colmeia-" + sanitizeID(colmeiaID)` (matching the storage collection name), and the pre-seed search uses `groupID`. `SearchMemoryTool` gains an optional `collection` parameter so agents can target a specific collection; the hive collection name is injected into `enrichedGoal` as `[HIVE MEMORY COLLECTION: ...]` so agents can use it.
+
 - **UTF-8 panic on non-UTF-8 files** (`internal/api/document_handler.go`): uploading Latin-1 encoded files (CSV, PDF) caused `qdrant/go-client` to panic with `invalid UTF-8 in string`. All metadata values are now sanitized via `toValidUTF8()` (wraps `strings.ToValidUTF8`) before being passed to Qdrant.
 
 ### Changed
