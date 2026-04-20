@@ -186,6 +186,7 @@ func (s *Server) Start() error {
 			colmeias.DELETE("/:id", s.handleDeleteColmeia)
 			colmeias.POST("/:id/dispatch", s.handleColmeiaDispatch)
 			colmeias.GET("/:id/historico", s.handleListHistoricoColmeia)
+			colmeias.POST("/:id/documents", s.handleColmeiaUploadDocument)
 
 			// Skills associadas à colmeia
 			colmeias.GET("/:id/skills", s.handleListColmeiaSkills)

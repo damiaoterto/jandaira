@@ -37,7 +37,12 @@ tags:
       Skills can be attached to a hive (used by the Queen during swarm assembly) or to individual
       pre-defined agents (merged into their system prompt and allowed tools at dispatch time).
   - name: Documents
-    description: Upload and index documents into the session's vector memory (ChromaDB)
+    description: |
+      Upload and index documents into vector memory (Qdrant).
+      Supported for both sessions (`POST /api/sessions/{id}/documents`) and
+      hives (`POST /api/colmeias/{id}/documents`).
+      When the active LLM provider does not support embeddings (e.g. Anthropic),
+      the document is saved to disk only and a `201` is still returned with `chunks: 0`.
   - name: Catalog
     description: Tools and agents catalog
   - name: WebSocket
@@ -1027,29 +1032,31 @@ paths:
 
   /api/sessions/{id}/documents:
     post:
-      tags: [Sessions]
+      tags: [Sessions, Documents]
       summary: Upload a document to session memory
       description: |
-        Receives a document file, extracts its plain text, splits it into overlapping
-        chunks (≈ 1 500 chars each), embeds every chunk via the configured LLM, and
-        stores the resulting vectors in ChromaDB so that session agents can retrieve
-        them with the `search_memory` tool.
+        Extracts plain text from the file, splits it into overlapping chunks (≈ 1 500 chars),
+        embeds each chunk via the configured LLM provider, and stores the vectors in Qdrant
+        under a collection scoped to the configured `swarm_name` (overrideable via `?collection`).
+        The extracted text is also written to `workspace/sessions/{id}/{stem}.txt` so agents
+        can read it directly with the `read_file` tool.
 
         **Supported formats:** `.pdf`, `.docx`, `.txt`, `.csv`, `.xlsx`
         **Not supported:** `.doc` (OLE2 binary — convert to `.docx` first)
-        **Size limit:** 32 MB per file
+        **Size limit:** 32 MB
 
-        The target ChromaDB collection defaults to the configured `swarm_name`
-        (e.g. `enxame-alfa`). Override it with the `?collection` query parameter.
+        **Embedding fallback:** when the active provider does not support embeddings
+        (e.g. Anthropic), the file is saved to disk and `201` is returned with `chunks: 0`
+        and a warning message. Switch to OpenAI for semantic search.
 
-        On success a `status` WebSocket event is broadcast to all connected clients:
+        On success a `status` WebSocket event is broadcast:
         `📄 Documento 'X' indexado na memória: N/M chunks salvos.`
       parameters:
         - $ref: '#/components/parameters/SessionID'
         - name: collection
           in: query
           required: false
-          description: ChromaDB collection name. Defaults to the configured swarm name.
+          description: Qdrant collection name. Defaults to the configured swarm name.
           schema:
             type: string
             example: "enxame-alfa"
@@ -1067,18 +1074,124 @@ paths:
                   description: Document file to index (.pdf, .docx, .txt, .csv, .xlsx)
       responses:
         '201':
-          description: Document indexed successfully
+          description: |
+            Document processed. `chunks > 0` means vectors were stored in Qdrant.
+            `chunks: 0` means embedding is unavailable — file saved to disk only.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentUploadResponse'
+              examples:
+                indexed:
+                  summary: Fully indexed (OpenAI)
+                  value:
+                    message: "Documento indexado com sucesso."
+                    filename: "relatorio-q2.pdf"
+                    workspace_path: "workspace/sessions/550e8400-e29b-41d4-a716-446655440000/relatorio-q2.txt"
+                    chunks: 12
+                    collection: "enxame-alfa"
+                    session_id: "550e8400-e29b-41d4-a716-446655440000"
+                disk_only:
+                  summary: Disk-only (Anthropic — no embedding support)
+                  value:
+                    message: "Documento salvo no workspace. Embedding não suportado pelo provedor atual (use OpenAI para busca semântica)."
+                    filename: "relatorio-q2.pdf"
+                    workspace_path: "workspace/sessions/550e8400-e29b-41d4-a716-446655440000/relatorio-q2.txt"
+                    chunks: 0
+                    collection: ""
+                    session_id: "550e8400-e29b-41d4-a716-446655440000"
+        '400':
+          description: Missing `file` field or malformed multipart body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
               example:
-                message: "Documento indexado com sucesso."
-                filename: "relatorio-q2.pdf"
-                workspace_path: "workspace/sessions/550e8400-e29b-41d4-a716-446655440000/relatorio-q2.txt"
-                chunks: 12
-                collection: "enxame-alfa"
-                session_id: "550e8400-e29b-41d4-a716-446655440000"
+                error: "Campo 'file' obrigatório (multipart/form-data)."
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Unsupported file format or no extractable text found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unsupported:
+                  summary: Unsupported extension
+                  value:
+                    error: "extensão não suportada: \".doc\" (aceitos: .pdf, .docx, .txt, .csv, .xlsx)"
+                empty:
+                  summary: No text found
+                  value:
+                    error: "Nenhum texto encontrado no documento."
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/documents:
+    post:
+      tags: [Colmeias, Documents]
+      summary: Upload a document to hive memory
+      description: |
+        Same extraction and chunking pipeline as the session document endpoint, but
+        the vectors are stored in a Qdrant collection scoped exclusively to this hive
+        (`colmeia-{id}`). The extracted text is written to
+        `workspace/colmeias/{id}/{stem}.txt` so hive agents can read it with `read_file`.
+
+        **Supported formats:** `.pdf`, `.docx`, `.txt`, `.csv`, `.xlsx`
+        **Not supported:** `.doc` (OLE2 binary — convert to `.docx` first)
+        **Size limit:** 32 MB
+
+        **Embedding fallback:** when the active provider does not support embeddings
+        (e.g. Anthropic), the file is saved to disk and `201` is returned with `chunks: 0`
+        and a warning message. Switch to OpenAI for semantic search.
+
+        On success a `status` WebSocket event is broadcast:
+        `📄 Documento 'X' indexado na memória da colmeia: N/M chunks salvos.`
+      parameters:
+        - $ref: '#/components/parameters/ColmeiaID'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Document file to index (.pdf, .docx, .txt, .csv, .xlsx)
+      responses:
+        '201':
+          description: |
+            Document processed. `chunks > 0` means vectors were stored in Qdrant.
+            `chunks: 0` means embedding is unavailable — file saved to disk only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ColmeiaDocumentUploadResponse'
+              examples:
+                indexed:
+                  summary: Fully indexed (OpenAI)
+                  value:
+                    message: "Documento indexado com sucesso na colmeia."
+                    filename: "manual-produto.pdf"
+                    workspace_path: "workspace/colmeias/a1b2c3d4-e5f6-7890-abcd-ef1234567890/manual-produto.txt"
+                    chunks: 8
+                    collection: "colmeia-a1b2c3d4_e5f6_7890_abcd_ef1234567890"
+                    colmeia_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                disk_only:
+                  summary: Disk-only (Anthropic — no embedding support)
+                  value:
+                    message: "Documento salvo no workspace. Embedding não suportado pelo provedor atual (use OpenAI para busca semântica)."
+                    filename: "manual-produto.pdf"
+                    workspace_path: "workspace/colmeias/a1b2c3d4-e5f6-7890-abcd-ef1234567890/manual-produto.txt"
+                    chunks: 0
+                    collection: ""
+                    colmeia_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         '400':
           description: Missing `file` field or malformed multipart body
           content:
@@ -1344,17 +1457,51 @@ components:
           example: "workspace/sessions/550e8400-e29b-41d4-a716-446655440000/relatorio-q2.txt"
         chunks:
           type: integer
-          description: Number of text chunks successfully embedded and stored in ChromaDB
+          description: |
+            Number of text chunks successfully embedded and stored in Qdrant.
+            `0` when the active LLM provider does not support embeddings.
           example: 12
         collection:
           type: string
-          description: ChromaDB collection where the vectors were stored
+          description: Qdrant collection where the vectors were stored. Empty string when embedding unavailable.
           example: "enxame-alfa"
         session_id:
           type: string
           format: uuid
           description: ID of the session this document is associated with
           example: "550e8400-e29b-41d4-a716-446655440000"
+
+    ColmeiaDocumentUploadResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Documento indexado com sucesso na colmeia."
+        filename:
+          type: string
+          description: Original filename of the uploaded document
+          example: "manual-produto.pdf"
+        workspace_path:
+          type: string
+          description: |
+            Relative path where the extracted plain text was saved on disk.
+            Format: `workspace/colmeias/{colmeiaID}/{stem}.txt`
+          example: "workspace/colmeias/a1b2c3d4-e5f6-7890-abcd-ef1234567890/manual-produto.txt"
+        chunks:
+          type: integer
+          description: |
+            Number of text chunks successfully embedded and stored in Qdrant.
+            `0` when the active LLM provider does not support embeddings.
+          example: 8
+        collection:
+          type: string
+          description: Qdrant collection where the vectors were stored. Empty string when embedding unavailable.
+          example: "colmeia-a1b2c3d4_e5f6_7890_abcd_ef1234567890"
+        colmeia_id:
+          type: string
+          format: uuid
+          description: ID of the hive this document is associated with
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
     Colmeia:
       type: object
