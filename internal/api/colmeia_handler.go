@@ -403,7 +403,7 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 
 		queryVec, err := s.Queen.Brain.Embed(memCtx, req.Goal)
 		if err == nil {
-			results, err := s.Queen.Honeycomb.Search(memCtx, groupID, queryVec, 3)
+			results, err := s.Queen.Honeycomb.Search(memCtx, groupID, queryVec, 10)
 			if err == nil && len(results) > 0 {
 				var sb strings.Builder
 				sb.WriteString(enrichedGoal)

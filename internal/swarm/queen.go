@@ -115,6 +115,7 @@ func (q *Queen) AssembleSwarm(ctx context.Context, goal string, maxWorkers int) 
 		2. Each worker acts in sequence (the result of one is passed to the next).
 		3. Apply the Skill Writing Guide rules to the 'SystemPrompt' field of EACH worker you create.
 		4. You MUST return ONLY a valid JSON. Do not include markdown blocks, greetings, or explanations outside the JSON.
+		5. TOOL EFFICIENCY — each worker has a reflection budget of 10 iterations (LLM turns). Instruct workers to minimize tool calls: prefer direct LLM computation for arithmetic and simple logic instead of execute_code; batch multiple search queries into a single search_memory call when possible; do NOT assign execute_code to workers whose only computation is arithmetic or string formatting.
 
 		EXPECTED OUTPUT FORMAT:
 		{
@@ -215,7 +216,7 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 			// historical context even without calling search_memory explicitly.
 			if q.Honeycomb != nil && q.Brain != nil {
 				if vec, err := q.Brain.Embed(ctx, goal); err == nil {
-					if memories, err := q.Honeycomb.Search(ctx, groupID, vec, 5); err == nil && len(memories) > 0 {
+					if memories, err := q.Honeycomb.Search(ctx, groupID, vec, 20); err == nil && len(memories) > 0 {
 						contextAccumulator += "--- RELEVANT PAST CONTEXT (from memory) ---\n"
 						for _, m := range memories {
 							if content, ok := m.Metadata["content"]; ok && content != "" {

@@ -20,6 +20,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 - **Reflection limit raised 5 → 10 and summary preserves tool history** (`internal/swarm/queen.go`): limit of 5 iterations was too low for workflows that search memory, calculate, store, and verify (easily 5+ LLM turns). Raised to 10. The forced final-summary call now appends the stop instruction to the full message history instead of trimming to system + first user; the agent can now reference all memory search results and calculation outputs already retrieved when composing the final answer.
 
+- **Queen planning prompt: tool-efficiency rule** (`internal/swarm/queen.go`): added output rule 5 instructing the Queen not to assign `execute_code` to specialists whose only computation is arithmetic or string formatting, and to prefer direct LLM computation over Wasm compilation for simple math — eliminating the 2-3 wasted iterations financial/reporting specialists spent compiling trivial Go code.
+
+- **`search_memory` result limit raised and made configurable** (`internal/tool/search_memory.go`, `internal/api/colmeia_handler.go`, `internal/swarm/queen.go`): hardcoded `limit: 3` forced agents to call `search_memory` 4-5 times to retrieve a full transaction history, consuming most of the 10-iteration budget. Default raised to 10 and a `limit` parameter exposed so agents can request up to 50 results in a single call. Dispatch pre-seed search raised from 3 → 10 in `handleColmeiaDispatch` and from 5 → 20 in `DispatchWorkflow` so more historical context is injected upfront, reducing the need for in-workflow memory searches.
+
 - **`store_memory` respects colmeia collection** (`internal/tool/search_memory.go`): added optional `collection` parameter to `StoreMemoryTool` (mirrors the existing parameter on `SearchMemoryTool`). Agents now pass the value from `[HIVE MEMORY COLLECTION: ...]` injected in the dispatch context so that stored records land in the correct per-colmeia collection instead of the global swarm collection.
 
 ### Added

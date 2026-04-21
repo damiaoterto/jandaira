@@ -40,6 +40,10 @@ func (t *SearchMemoryTool) Parameters() map[string]interface{} {
 				"type":        "string",
 				"description": "Optional. The memory collection to search. Use the value from [HIVE MEMORY COLLECTION: ...] in your context if present.",
 			},
+			"limit": map[string]interface{}{
+				"type":        "integer",
+				"description": "Max number of results to return. Default 10. Use a higher value (e.g. 50) to retrieve the full history in a single call.",
+			},
 		},
 		"required": []string{"query"},
 	}
@@ -49,6 +53,7 @@ func (t *SearchMemoryTool) Execute(ctx context.Context, argsJSON string) (string
 	var args struct {
 		Query      string `json:"query"`
 		Collection string `json:"collection"`
+		Limit      int    `json:"limit"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
@@ -64,7 +69,11 @@ func (t *SearchMemoryTool) Execute(ctx context.Context, argsJSON string) (string
 		return fmt.Sprintf("Semantic search unavailable (embedding error: %v). Store operations still work in degraded mode.", embedErr), nil
 	}
 
-	results, err := t.Honeycomb.Search(ctx, collection, vector, 3)
+	limit := args.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	results, err := t.Honeycomb.Search(ctx, collection, vector, limit)
 	if err != nil {
 		return fmt.Sprintf("Semantic search unavailable (search error: %v). No memories retrieved.", err), nil
 	}
