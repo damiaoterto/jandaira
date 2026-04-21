@@ -100,6 +100,10 @@ func (t *StoreMemoryTool) Parameters() map[string]interface{} {
 				"type":        "string",
 				"description": "Category of the data (e.g. 'financial_entry', 'calculation_result', 'agent_note').",
 			},
+			"collection": map[string]interface{}{
+				"type":        "string",
+				"description": "Optional. The memory collection to store into. Use the value from [HIVE MEMORY COLLECTION: ...] in your context if present.",
+			},
 			"metadata": map[string]interface{}{
 				"type":        "object",
 				"description": "Optional free-form key-value fields (e.g. {\"category\": \"income\", \"amount\": \"10000\"}).",
@@ -124,12 +128,18 @@ func fallbackVector() []float32 {
 
 func (t *StoreMemoryTool) Execute(ctx context.Context, argsJSON string) (string, error) {
 	var args struct {
-		Content  string            `json:"content"`
-		Type     string            `json:"type"`
-		Metadata map[string]string `json:"metadata"`
+		Content    string            `json:"content"`
+		Type       string            `json:"type"`
+		Collection string            `json:"collection"`
+		Metadata   map[string]string `json:"metadata"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	collection := t.Collection
+	if args.Collection != "" {
+		collection = args.Collection
 	}
 
 	docType := args.Type
@@ -154,7 +164,7 @@ func (t *StoreMemoryTool) Execute(ctx context.Context, argsJSON string) (string,
 	}
 
 	docID := fmt.Sprintf("mem-%d", time.Now().UnixMilli())
-	if err := t.Honeycomb.Store(ctx, t.Collection, docID, vector, meta); err != nil {
+	if err := t.Honeycomb.Store(ctx, collection, docID, vector, meta); err != nil {
 		return "", fmt.Errorf("failed to store in vector database: %w", err)
 	}
 

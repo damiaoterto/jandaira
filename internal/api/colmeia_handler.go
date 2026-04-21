@@ -56,6 +56,24 @@ func (s *Server) handleCreateColmeia(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create hive."})
 		return
 	}
+
+	// Eagerly create the colmeia's Qdrant collection so it exists before any
+	// document is uploaded or store_memory is called.
+	if s.Queen.Honeycomb != nil {
+		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer ensureCancel()
+
+		dim := 1536
+		if vec, embedErr := s.Queen.Brain.Embed(ensureCtx, "init"); embedErr == nil {
+			dim = len(vec)
+		}
+
+		groupID := "colmeia-" + sanitizeID(colmeia.ID)
+		if ensErr := s.Queen.Honeycomb.EnsureCollection(ensureCtx, groupID, dim); ensErr != nil {
+			log.Printf("WARN handleCreateColmeia EnsureCollection colmeia=%s: %v", colmeia.ID, ensErr)
+		}
+	}
+
 	c.JSON(http.StatusCreated, gin.H{"message": "Hive created successfully.", "colmeia": colmeia})
 }
 
