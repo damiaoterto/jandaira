@@ -382,6 +382,20 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 		})
 	}
 
+	// Ensure the colmeia's Qdrant collection exists before any search or store.
+	// Covers colmeias created before the eager-EnsureCollection fix.
+	if s.Queen.Honeycomb != nil {
+		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer ensureCancel()
+		dim := 1536
+		if vec, embedErr := s.Queen.Brain.Embed(ensureCtx, "init"); embedErr == nil {
+			dim = len(vec)
+		}
+		if ensErr := s.Queen.Honeycomb.EnsureCollection(ensureCtx, groupID, dim); ensErr != nil {
+			log.Printf("WARN handleColmeiaDispatch EnsureCollection colmeia=%s: %v", colmeiaID, ensErr)
+		}
+	}
+
 	// Enrich with semantic memory from Honeycomb (vector DB) if available.
 	if s.Queen.Honeycomb != nil {
 		memCtx, memCancel := context.WithTimeout(context.Background(), 15*time.Second)

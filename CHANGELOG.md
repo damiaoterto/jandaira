@@ -14,6 +14,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 - **`search_memory` no longer causes agent reflection-limit loop** (`internal/brain/qdrant.go`, `internal/tool/search_memory.go`): querying a Qdrant collection that doesn't yet exist returned a gRPC error which propagated back to the agent as a hard tool error; the agent retried on every iteration and exhausted the 5-step reflection limit. Fixed on two layers: `QdrantHoneycomb.Search` now detects `NOT_FOUND` gRPC status (and "doesn't exist" message) and returns empty results instead of an error; `SearchMemoryTool.Execute` converts any remaining search error into an informative string response (`nil` error) so the agent continues without retrying.
 
+- **`store_memory` auto-creates Qdrant collection on missing collection** (`internal/brain/qdrant.go`): `QdrantHoneycomb.Store` now detects `NOT_FOUND` on upsert, calls `EnsureCollection` with the vector's actual dimension, and retries the upsert — eliminating hard errors for agents calling `store_memory` before any document was uploaded to a colmeia.
+
+- **Existing colmeias get Qdrant collection on first dispatch** (`internal/api/colmeia_handler.go`): `handleColmeiaDispatch` now calls `EnsureCollection` for the colmeia's `groupID` before enriching the goal with semantic memory. Covers colmeias created before the eager-create fix was added to `handleCreateColmeia`.
+
+- **Reflection limit raised 5 → 10 and summary preserves tool history** (`internal/swarm/queen.go`): limit of 5 iterations was too low for workflows that search memory, calculate, store, and verify (easily 5+ LLM turns). Raised to 10. The forced final-summary call now appends the stop instruction to the full message history instead of trimming to system + first user; the agent can now reference all memory search results and calculation outputs already retrieved when composing the final answer.
+
 - **`store_memory` respects colmeia collection** (`internal/tool/search_memory.go`): added optional `collection` parameter to `StoreMemoryTool` (mirrors the existing parameter on `SearchMemoryTool`). Agents now pass the value from `[HIVE MEMORY COLLECTION: ...]` injected in the dispatch context so that stored records land in the correct per-colmeia collection instead of the global swarm collection.
 
 ### Added

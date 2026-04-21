@@ -306,7 +306,7 @@ func (q *Queen) runSpecialist(ctx context.Context, spec Specialist, encryptedTas
 		{Role: brain.RoleUser, Content: taskContext},
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 10; i++ {
 		q.mu.RLock()
 		usedNectar := q.NectarUsage[spec.Name]
 		q.mu.RUnlock()
@@ -381,11 +381,12 @@ func (q *Queen) runSpecialist(ctx context.Context, spec Specialist, encryptedTas
 
 	// Force a final summary from the specialist instead of failing the job.
 	q.logf("⚠️  [%s] Reflection limit reached — requesting final summary.", spec.Name)
-	// Keep only system + first user message to avoid context overflow.
-	trimmedMessages := messages[:2]
-	trimmedMessages = append(trimmedMessages, brain.Message{
+	// Keep full message history so the agent can reference tool results already retrieved
+	// (e.g. memory search hits, calc outputs). Only strip tool definitions so no new calls
+	// are made. Append the stop instruction as the last user turn.
+	trimmedMessages := append(messages, brain.Message{
 		Role:    brain.RoleUser,
-		Content: "REFLECTION LIMIT REACHED. Stop using tools. Report what was attempted and what failed.",
+		Content: "REFLECTION LIMIT REACHED. Stop using tools. Summarize everything found and computed so far into a final answer.",
 	})
 	finalResponse, _, _, err := q.Brain.Chat(ctx, trimmedMessages, nil)
 	if err != nil {

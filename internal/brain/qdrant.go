@@ -71,17 +71,32 @@ func (q *QdrantHoneycomb) Store(ctx context.Context, collection string, id strin
 	}
 	payload["_id"] = id
 
-	_, err := q.client.Upsert(ctx, &qdrant.UpsertPoints{
-		CollectionName: collection,
-		Points: []*qdrant.PointStruct{
-			{
-				Id:      stringToPointID(id),
-				Vectors: qdrant.NewVectors(vector...),
-				Payload: qdrant.NewValueMap(payload),
+	upsert := func() error {
+		_, err := q.client.Upsert(ctx, &qdrant.UpsertPoints{
+			CollectionName: collection,
+			Points: []*qdrant.PointStruct{
+				{
+					Id:      stringToPointID(id),
+					Vectors: qdrant.NewVectors(vector...),
+					Payload: qdrant.NewValueMap(payload),
+				},
 			},
-		},
-	})
-	if err != nil {
+		})
+		return err
+	}
+
+	if err := upsert(); err != nil {
+		// Auto-create collection if it doesn't exist yet, then retry once.
+		st, ok := status.FromError(err)
+		if ok && (st.Code() == codes.NotFound || strings.Contains(st.Message(), "doesn't exist")) {
+			if ceErr := q.EnsureCollection(ctx, collection, len(vector)); ceErr != nil {
+				return fmt.Errorf("failed to create qdrant collection %q: %w", collection, ceErr)
+			}
+			if retryErr := upsert(); retryErr != nil {
+				return fmt.Errorf("failed to upsert to qdrant collection %q: %w", collection, retryErr)
+			}
+			return nil
+		}
 		return fmt.Errorf("failed to upsert to qdrant collection %q: %w", collection, err)
 	}
 	return nil
