@@ -66,7 +66,7 @@ func (t *SearchMemoryTool) Execute(ctx context.Context, argsJSON string) (string
 
 	results, err := t.Honeycomb.Search(ctx, collection, vector, 3)
 	if err != nil {
-		return "", fmt.Errorf("vector search failed: %w", err)
+		return fmt.Sprintf("Semantic search unavailable (search error: %v). No memories retrieved.", err), nil
 	}
 
 	if len(results) == 0 {

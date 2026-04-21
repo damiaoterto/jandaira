@@ -3,10 +3,13 @@ package brain
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
 	"github.com/qdrant/go-client/qdrant"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // QdrantHoneycomb implements the Honeycomb interface backed by a Qdrant instance.
@@ -123,6 +126,10 @@ func (q *QdrantHoneycomb) Search(ctx context.Context, collection string, query [
 		WithPayload:    qdrant.NewWithPayload(true),
 	})
 	if err != nil {
+		// Collection not yet created — treat as empty, not an error.
+		if st, ok := status.FromError(err); ok && (st.Code() == codes.NotFound || strings.Contains(st.Message(), "doesn't exist")) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("qdrant query failed: %w", err)
 	}
 

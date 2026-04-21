@@ -12,6 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 - **Colmeia Qdrant collection created eagerly** (`internal/api/colmeia_handler.go`): `handleCreateColmeia` now calls `Honeycomb.EnsureCollection` immediately after the colmeia is persisted, using the real embedding dimension (via a probe embed) or 1536 as fallback. Previously the collection only existed after the first document upload, causing `store_memory` calls on a fresh colmeia to fail or land in the wrong collection.
 
+- **`search_memory` no longer causes agent reflection-limit loop** (`internal/brain/qdrant.go`, `internal/tool/search_memory.go`): querying a Qdrant collection that doesn't yet exist returned a gRPC error which propagated back to the agent as a hard tool error; the agent retried on every iteration and exhausted the 5-step reflection limit. Fixed on two layers: `QdrantHoneycomb.Search` now detects `NOT_FOUND` gRPC status (and "doesn't exist" message) and returns empty results instead of an error; `SearchMemoryTool.Execute` converts any remaining search error into an informative string response (`nil` error) so the agent continues without retrying.
+
 - **`store_memory` respects colmeia collection** (`internal/tool/search_memory.go`): added optional `collection` parameter to `StoreMemoryTool` (mirrors the existing parameter on `SearchMemoryTool`). Agents now pass the value from `[HIVE MEMORY COLLECTION: ...]` injected in the dispatch context so that stored records land in the correct per-colmeia collection instead of the global swarm collection.
 
 ### Added
