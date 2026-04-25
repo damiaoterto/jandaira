@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,8 +24,6 @@ import (
 func main() {
 	port := flag.Int("port", 8080, "Port for Webserver")
 	flag.Parse()
-
-	ctx := context.Background()
 
 	db, err := database.Open(config.GetDefaultPath())
 	if err != nil {
@@ -69,17 +66,12 @@ func main() {
 		swarmName = cfg.SwarmName
 	}
 
-	qdrantHost := os.Getenv("QDRANT_HOST")
-	if qdrantHost == "" {
-		qdrantHost = "localhost"
-	}
-	qdrantPort := 6334
-	honeycomb, err := brain.NewQdrantHoneycomb(qdrantHost, qdrantPort)
+	vectorDBDir := filepath.Join(filepath.Dir(config.GetDefaultPath()), "vectordb")
+	honeycomb, err := brain.NewVectorEngine(vectorDBDir)
 	if err != nil {
-		fmt.Printf("Error initializing Qdrant: %v\n", err)
+		fmt.Printf("Error initializing vector engine: %v\n", err)
 		os.Exit(1)
 	}
-	_ = honeycomb.EnsureCollection(ctx, swarmName, 1536)
 
 	graphPath := filepath.Join(filepath.Dir(config.GetDefaultPath()), "knowledge_graph.json")
 	knowledgeGraph, err := brain.NewLocalKnowledgeGraph(graphPath)

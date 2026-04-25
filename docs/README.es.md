@@ -21,7 +21,7 @@ Este es exactamente el modelo de arquitectura que el proyecto implementa:
 - La **Reina (`Queen`)** no ejecuta tareas — ella orquesta, valida políticas y garantiza la seguridad.
 - Las **Especialistas (`Specialists`)** son agentes ligeros con herramientas restringidas, operando en silos aislados.
 - El **Néctar** es la metáfora para el presupuesto de tokens: cada agente consume néctar; cuando se acaba, la colmena se detiene.
-- El **Panal (`Honeycomb`)** es el sistema de memoria persistente de dos niveles: `ShortTermMemory` mantiene el contexto reciente en RAM con expiración automática por TTL; Qdrant archiva el conocimiento consolidado a largo plazo como vectores.
+- El **Panal (`Honeycomb`)** es el sistema de memoria persistente de dos niveles: `ShortTermMemory` mantiene el contexto reciente en RAM con expiración automática por TTL; el `VectorEngine` integrado (BadgerDB + HNSW) archiva el conocimiento consolidado a largo plazo como vectores — sin dependencias externas.
 - El **Grafo de Conocimiento (`KnowledgeGraph`)** mapea relaciones entre agentes, temas y herramientas — la Reina lo consulta antes de cada misión para reutilizar perfiles de especialistas que ya tuvieron éxito en objetivos similares.
 - El **Apicultor** es el humano en el bucle: aprueba o bloquea cualquier acción antes de que la IA la ejecute.
 
@@ -74,9 +74,9 @@ Este es exactamente el modelo de arquitectura que el proyecto implementa:
            │
            ▼
 ┌──────────────────────────────────────────────────────────┐
-│                   🍯 Panal (Qdrant)                     │
+│           🍯 Panal (VectorEngine)                        │
 │   El resultado del flujo se inserta e indexa             │
-│   Memoria a largo plazo compartida entre misiones        │
+│   Memoria integrada a largo plazo (BadgerDB + HNSW)      │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -91,8 +91,9 @@ jandaira/
 └── internal/
     ├── brain/               # Sistema nervioso del enjambre
     │   ├── open_ai.go       # Brain: Chat + Embed vía OpenAI
-    │   ├── memory.go        # Honeycomb: interfaz vectorial + LocalVectorDB
-    │   ├── qdrant.go        # QdrantHoneycomb: backend Qdrant
+    │   ├── memory.go        # Honeycomb: interfaz + tipos Result/Document
+    │   ├── hnsw.go          # Índice HNSW (vecinos más cercanos aproximados)
+    │   ├── vector_engine.go # VectorEngine: BadgerDB + HNSW integrado
     │   ├── graph.go         # KnowledgeGraph: grafo agente ↔ tema (GraphRAG)
     │   ├── short_term.go    # ShortTermMemory: buffer TTL + compactación automática
     │   └── document.go      # Extracción de texto + chunking (PDF, DOCX, XLSX…)
@@ -135,7 +136,7 @@ jandaira/
 
 - Cada mensaje recibe un timestamp de expiración al insertarse
 - Las entradas expiradas se descartan silenciosamente en el siguiente acceso
-- **Compactación automática**: cuando el buffer alcanza `maxEntries`, el LLM resume el historial acumulado en un párrafo denso → el resumen se incrusta y archiva en Qdrant como `short_term_archive` → el buffer RAM se vacía
+- **Compactación automática**: cuando el buffer alcanza `maxEntries`, el LLM resume el historial acumulado en un párrafo denso → el resumen se incrusta y archiva en VectorEngine como `short_term_archive` → el buffer RAM se vacía
 - `Flush(ctx)` debe llamarse al final de cada sesión para garantizar el archivado completo
 
 ```
@@ -155,7 +156,7 @@ jandaira/
          │
          ▼
 ┌──────────────────────────────────┐
-│  Qdrant  (Memoria a Largo Plazo)│
+│  VectorEngine (Largo Plazo)      │
 │  type: "short_term_archive"      │
 └──────────────────────────────────┘
 ```
@@ -193,28 +194,11 @@ Resultado: la Reina diseña enjambres progresivamente mejores con el tiempo, sin
 # Go 1.22 o superior
 go version
 
-# Docker (para Qdrant)
-docker --version
-
 # Clave de OpenAI
 export OPENAI_API_KEY="sk-..."
 ```
 
-### Iniciar Qdrant
-
-```bash
-# Directamente con Docker
-docker run -d --name qdrant -p 6334:6334 qdrant/qdrant:latest
-
-# O usando el docker-compose del proyecto
-docker compose up -d
-```
-
-Por defecto el servidor se conecta a `localhost:6334`. Para usar otra dirección:
-
-```bash
-export QDRANT_HOST="qdrant"  # hostname only, port 6334 (gRPC) used by default
-```
+> **No se requiere Docker.** La base de datos vectorial (`VectorEngine`) está integrada en el binario y persiste automáticamente en `~/.config/jandaira/vectordb/`.
 
 ### Instalación
 
@@ -280,8 +264,8 @@ El servidor estará disponible en `http://localhost:8080`. Monitorea eventos en 
 | `write_file` | Crea o sobreescribe un archivo |
 | `execute_code` | Ejecuta código en sandbox Wasm aislado |
 | `web_search` | Busca en internet via DuckDuckGo (respuestas directas, definiciones, resúmenes) |
-| `search_memory` | Búsqueda semántica en la memoria vectorial (Qdrant) |
-| `store_memory` | Guarda conocimiento en la memoria vectorial |
+| `search_memory` | Búsqueda semántica en la memoria vectorial (BadgerDB + HNSW) |
+| `store_memory` | **Único mecanismo de persistencia permanente.** Guarda datos en el VectorEngine integrado con campos opcionales `type` y `metadata`. |
 
 ---
 

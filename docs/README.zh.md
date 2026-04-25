@@ -21,7 +21,7 @@
 - **蜂王（`Queen`）** 不执行任务——她负责编排、验证策略和确保安全。
 - **专家智能体（`Specialists`）** 是轻量级智能体，工具受限，在隔离的沙箱中执行。
 - **花蜜（Nectar）** 是 Token 预算的隐喻：每个智能体消耗花蜜；花蜜耗尽，蜂巢停止运作。
-- **蜂巢（`Honeycomb`）** 是两层持久化记忆系统：`ShortTermMemory` 将近期上下文保存在 RAM 中并自动按 TTL 过期；Qdrant 将整合后的长期知识作为向量嵌入归档。
+- **蜂巢（`Honeycomb`）** 是两层持久化记忆系统：`ShortTermMemory` 将近期上下文保存在 RAM 中并自动按 TTL 过期；内嵌的 `VectorEngine`（BadgerDB + HNSW）将整合后的长期知识作为向量嵌入归档——无需外部进程。
 - **知识图谱（`KnowledgeGraph`）** 映射智能体、主题和工具之间的关系——蜂王在每次任务前查询它，以复用在类似目标上已成功过的专家配置文件。
 - **养蜂人（Beekeeper）** 是回路中的人类：可以在 AI 执行任何操作之前批准或阻止它。
 
@@ -75,9 +75,9 @@
            │
            ▼
 ┌──────────────────────────────────────────────────────────┐
-│                   🍯 蜂巢（Qdrant）                     │
+│           🍯 蜂巢（VectorEngine）                        │
 │   工作流结果被嵌入并索引                                  │
-│   任务之间共享的长期记忆                                  │
+│   内嵌长期记忆（BadgerDB + HNSW）                        │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -92,8 +92,9 @@ jandaira/
 └── internal/
     ├── brain/               # 蜂群神经系统
     │   ├── open_ai.go       # Brain：通过 OpenAI 实现 Chat + Embed
-    │   ├── memory.go        # Honeycomb：向量接口 + LocalVectorDB
-    │   ├── qdrant.go        # QdrantHoneycomb：Qdrant 后端
+    │   ├── memory.go        # Honeycomb：接口 + Result/Document 类型
+    │   ├── hnsw.go          # HNSW 索引（近似最近邻）
+    │   ├── vector_engine.go # VectorEngine：内嵌 BadgerDB + HNSW
     │   ├── graph.go         # KnowledgeGraph：智能体 ↔ 主题图谱（GraphRAG）
     │   ├── short_term.go    # ShortTermMemory：TTL 缓冲区 + 自动压缩
     │   └── document.go      # 文本提取 + 分块（PDF、DOCX、XLSX…）
@@ -136,7 +137,7 @@ jandaira/
 
 - 每条消息在插入时获得一个到期时间戳
 - 过期条目在下次访问时被静默丢弃
-- **自动压缩**：当缓冲区达到 `maxEntries` 时，LLM 将积累的历史摘要为一个密集段落 → 摘要被嵌入并作为 `short_term_archive` 归档到 Qdrant → RAM 缓冲区被清空
+- **自动压缩**：当缓冲区达到 `maxEntries` 时，LLM 将积累的历史摘要为一个密集段落 → 摘要被嵌入并作为 `short_term_archive` 归档到 VectorEngine → RAM 缓冲区被清空
 - 会话结束时应调用 `Flush(ctx)` 以确保完整归档；若 LLM 失败，原始记录将作为备用方案归档
 
 ```
@@ -156,7 +157,7 @@ jandaira/
      │
      ▼
 ┌──────────────────────────────────┐
-│  Qdrant（长期记忆）            │
+│  VectorEngine（长期记忆）        │
 │  type: "short_term_archive"      │
 └──────────────────────────────────┘
 ```
@@ -197,7 +198,7 @@ jandaira/
 | **智能体间加密** | ❌ 不存在 | ✅ 每次接力之间的 AES-GCM |
 | **人在回路中** | 可选 / 外部 | ✅ 原生：养蜂人模式（通过 WebSocket） |
 | **Token 预算** | 手动 | ✅ 每个蜂群自动 `NectarUsage` |
-| **向量记忆** | Pinecone / 外部 | ✅ Qdrant via Docker |
+| **向量记忆** | Pinecone / 外部 | ✅ 内嵌 VectorEngine（BadgerDB + HNSW） |
 | **知识图谱** | ❌ 不存在 | ✅ `KnowledgeGraph` — 原生 GraphRAG |
 | **短期记忆** | ❌ 不存在 | ✅ `ShortTermMemory` 含 TTL + LLM 压缩 |
 | **界面** | 不存在 | ✅ REST API + WebSocket |
@@ -220,28 +221,11 @@ jandaira/
 # Go 1.22 或更高版本
 go version
 
-# Docker（用于 Qdrant）
-docker --version
-
 # OpenAI API 密钥
 export OPENAI_API_KEY="sk-..."
 ```
 
-### 启动 Qdrant
-
-```bash
-# 直接通过 Docker
-docker run -d --name qdrant -p 6334:6334 qdrant/qdrant:latest
-
-# 或使用项目的 docker-compose
-docker compose up -d
-```
-
-服务器默认连接到 `localhost:6334`。使用其他地址：
-
-```bash
-export QDRANT_HOST="qdrant"  # hostname only, port 6334 (gRPC) used by default
-```
+> **无需 Docker。** 向量数据库（`VectorEngine`）已内嵌在二进制文件中，自动将数据持久化到 `~/.config/jandaira/vectordb/`。
 
 ### 安装
 
@@ -304,7 +288,7 @@ go run ./cmd/api/main.go --port 8080
    { "type": "approve", "id": "req-1712345678901", "approved": true }
    ```
 
-5. 最后，结果保存到 Qdrant 向量记忆中以供将来使用。
+5. 最后，结果被嵌入并保存到本地 VectorEngine 以供将来使用。
 
 ### 配置你自己的蜂群
 
@@ -327,8 +311,8 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 | `write_file` | 创建或覆盖文件 |
 | `execute_code` | 在隔离的 Wasm 沙箱中执行代码 |
 | `web_search` | 通过 DuckDuckGo 搜索网络（直接答案、定义、摘要） |
-| `search_memory` | 在蜂巢向量记忆（Qdrant）中进行语义搜索 |
-| `store_memory` | 将知识保存到向量记忆 |
+| `search_memory` | 在蜂巢向量记忆（BadgerDB + HNSW）中进行语义搜索 |
+| `store_memory` | **唯一永久持久化机制。** 将数据保存到内嵌 VectorEngine，支持可选的 `type` 和 `metadata` 字段。 |
 
 ---
 

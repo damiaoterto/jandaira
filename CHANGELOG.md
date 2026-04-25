@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- **Vector memory migrated to native VectorEngine** (`internal/brain/hnsw.go`, `internal/brain/vector_engine.go`): `QdrantHoneycomb` (gRPC client requiring an external Qdrant Docker container) replaced by an embedded, single-process `VectorEngine`. Storage: BadgerDB binary key-value store at `~/.config/jandaira/vectordb/`. Index: per-collection in-memory HNSW (Hierarchical Navigable Small World) approximate nearest-neighbour graph, rebuilt on startup from persisted vectors. Cache: all live document vectors held in RAM for O(1) retrieval. Background goroutine compacts BadgerDB value log every 5 minutes. `LocalVectorDB` (JSON-based fallback) removed from `memory.go`. `qdrant/go-client` and gRPC removed from `go.mod`; `github.com/dgraph-io/badger/v4` added. `QDRANT_HOST` environment variable no longer needed — zero external process dependencies.
+
 ### Fixed
 
 - **Colmeia Qdrant collection created eagerly** (`internal/api/colmeia_handler.go`): `handleCreateColmeia` now calls `Honeycomb.EnsureCollection` immediately after the colmeia is persisted, using the real embedding dimension (via a probe embed) or 1536 as fallback. Previously the collection only existed after the first document upload, causing `store_memory` calls on a fresh colmeia to fail or land in the wrong collection.

@@ -394,7 +394,7 @@ func (q *Queen) runSpecialist(ctx context.Context, spec Specialist, encryptedTas
 		q.logf("❌ [%s] Reflection limit summary also failed: %v", spec.Name, err)
 		return "", fmt.Errorf("specialist '%s' reflection limit summary failed: %w", spec.Name, err)
 	}
-	encryptedFinal, err := security.Seal(sessionKey, "[REFLECTION LIMIT] "+finalResponse)
+	encryptedFinal, err := security.Seal(sessionKey, finalResponse)
 	if err != nil {
 		return "", fmt.Errorf("failed to encrypt reflection-limit response: %w", err)
 	}

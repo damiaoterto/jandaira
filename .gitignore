@@ -23,6 +23,7 @@
 go.work
 .agent
 .agents
+.claude
 .jandaira
 skills-lock.json
 

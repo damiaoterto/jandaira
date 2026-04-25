@@ -21,7 +21,7 @@ This is exactly the architectural model this project implements:
 - The **Queen (`Queen`)** does not execute tasks — she orchestrates, validates policies, and ensures security.
 - The **Specialists (`Specialists`)** are lightweight agents with restricted tools, executing in isolated silos.
 - **Nectar** is the metaphor for the token budget: each agent consumes nectar; when it runs out, the hive stops.
-- The **Honeycomb (`Honeycomb`)** is the two-tier persistent memory system: `ShortTermMemory` keeps recent context in RAM with automatic TTL expiry; Qdrant archives consolidated long-term knowledge as vector embeddings.
+- The **Honeycomb (`Honeycomb`)** is the two-tier persistent memory system: `ShortTermMemory` keeps recent context in RAM with automatic TTL expiry; the embedded `VectorEngine` (BadgerDB + HNSW) archives consolidated long-term knowledge as vector embeddings — no external processes required.
 - The **Knowledge Graph (`KnowledgeGraph`)** maps relationships between agents, topics, and tools — the Queen queries it before every mission to reuse specialist profiles that have already succeeded on similar goals.
 - The **Beekeeper** is the human in the loop: they can approve or block any AI action before it is executed.
 
@@ -75,9 +75,9 @@ This is exactly the architectural model this project implements:
            │
            ▼
 ┌──────────────────────────────────────────────────────────┐
-│                   🍯 Honeycomb (Qdrant)                 │
+│             🍯 Honeycomb (VectorEngine)                  │
 │   Workflow result is embedded and indexed                 │
-│   Long-term memory shared between missions               │
+│   Embedded long-term memory (BadgerDB + HNSW)            │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -92,8 +92,9 @@ jandaira/
 └── internal/
     ├── brain/               # Hive nervous system
     │   ├── open_ai.go       # Brain: Chat + Embed via OpenAI
-    │   ├── memory.go        # Honeycomb: vector interface + LocalVectorDB
-    │   ├── qdrant.go        # QdrantHoneycomb: Qdrant backend
+    │   ├── memory.go        # Honeycomb: interface + Result/Document types
+    │   ├── hnsw.go          # HNSW index (approximate nearest neighbour)
+    │   ├── vector_engine.go # VectorEngine: embedded BadgerDB + HNSW
     │   ├── graph.go         # KnowledgeGraph: agent ↔ topic graph (GraphRAG)
     │   ├── short_term.go    # ShortTermMemory: TTL buffer + auto-compaction
     │   └── document.go      # Text extraction + chunking (PDF, DOCX, XLSX…)
@@ -136,7 +137,7 @@ jandaira/
 
 - Each message receives an expiry timestamp at insertion time
 - Expired entries are silently dropped on the next access
-- **Automatic compaction**: when the buffer hits `maxEntries`, the LLM summarises the accumulated history into a dense paragraph → the summary is embedded and archived in Qdrant as `short_term_archive` → the RAM buffer is cleared
+- **Automatic compaction**: when the buffer hits `maxEntries`, the LLM summarises the accumulated history into a dense paragraph → the summary is embedded and archived in VectorEngine as `short_term_archive` → the RAM buffer is cleared
 - `Flush(ctx)` should be called at session end to guarantee complete archival; if the LLM fails, the raw transcript is archived as a fallback
 
 ```
@@ -156,10 +157,10 @@ jandaira/
          │
          ▼
 ┌──────────────────────────────────┐
-│  Qdrant  (Long-Term Memory)    │
+│  VectorEngine (Long-Term Memory) │
 │  type: "short_term_archive"      │
 │  content: "In [session], the     │
-│  agent decided X, found Y..."   │
+│  agent decided X, found Y..."    │
 └──────────────────────────────────┘
 ```
 
@@ -225,7 +226,7 @@ Result: the Queen designs progressively better swarms over time, using only grap
 | **Inter-agent encryption** | ❌ Does not exist | ✅ AES-GCM between each pass |
 | **Human-in-the-Loop** | Optional / external | ✅ Native: Beekeeper mode via WebSocket |
 | **Token budget** | Manual | ✅ Automatic `NectarUsage` per swarm |
-| **Vector memory** | Pinecone / external | ✅ Qdrant via Docker |
+| **Vector memory** | Pinecone / external | ✅ Embedded VectorEngine (BadgerDB + HNSW) |
 | **Knowledge graph** | ❌ Does not exist | ✅ `KnowledgeGraph` — native GraphRAG |
 | **Short-term memory** | ❌ Does not exist | ✅ `ShortTermMemory` with TTL + LLM compaction |
 | **Interface** | Nonexistent | ✅ REST API + WebSocket |
@@ -248,28 +249,11 @@ Result: the Queen designs progressively better swarms over time, using only grap
 # Go 1.22 or higher
 go version
 
-# Docker (for Qdrant)
-docker --version
-
 # OpenAI API key
 export OPENAI_API_KEY="sk-..."
 ```
 
-### Starting Qdrant
-
-```bash
-# Via Docker directly
-docker run -d --name qdrant -p 6334:6334 qdrant/qdrant:latest
-
-# Or using the project's docker-compose
-docker compose up -d
-```
-
-By default the server connects to `localhost:6334`. To use a different address:
-
-```bash
-export QDRANT_HOST="qdrant"  # hostname only, port 6334 (gRPC) used by default
-```
+> **No Docker required.** The vector database (`VectorEngine`) is embedded in the binary and persists automatically to `~/.config/jandaira/vectordb/`.
 
 ### Installation
 
@@ -332,7 +316,7 @@ The server will be available at `http://localhost:8080`. Monitor real-time event
    { "type": "approve", "id": "req-1712345678901", "approved": true }
    ```
 
-5. At the end, the result is saved to Qdrant vector memory for future use.
+5. At the end, the result is embedded and saved to the local VectorEngine for future use.
 
 ### Configure your own swarm
 
@@ -354,8 +338,8 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 | `read_file` | Reads file content (read-only — agents never persist data to disk) |
 | `execute_code` | Compiles and runs Go code in an isolated Wasm sandbox — use for calculations and data processing |
 | `web_search` | Searches the web via DuckDuckGo (direct answers, definitions, summaries) |
-| `search_memory` | Semantic search in the hive's vector memory (Qdrant); degrades gracefully when embedding is unavailable |
-| `store_memory` | **The sole permanent persistence mechanism.** Saves records to Qdrant with optional `type` and `metadata` fields. Use for financial entries, calculation results, and any data that must survive across sessions. |
+| `search_memory` | Semantic search in the hive's vector memory (BadgerDB + HNSW); degrades gracefully when embedding is unavailable |
+| `store_memory` | **The sole permanent persistence mechanism.** Saves records to the embedded VectorEngine with optional `type` and `metadata` fields. Use for financial entries, calculation results, and any data that must survive across sessions. |
 
 > **Note:** `write_file` and `create_directory` have been removed from the agent toolkit. All persistent data flows through `store_memory` into the vector database.
 
@@ -465,7 +449,7 @@ curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
 {
   "tools": [
     { "name": "execute_code", "description": "Compiles and runs Go code in an isolated Wasm sandbox", "parameters": { ... } },
-    { "name": "store_memory", "description": "Persists data to the vector database (Qdrant)", "parameters": { ... } }
+    { "name": "store_memory", "description": "Persists data to the embedded VectorEngine", "parameters": { ... } }
   ]
 }
 ```
