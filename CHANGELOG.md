@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Security
+
+- **Prompt injection defense and scope enforcement for specialists** (`internal/swarm/queen.go`): every specialist's system prompt is now wrapped with a non-overridable scope enforcement block via `buildScopedSystemPrompt`. The block instructs the agent to treat any in-context instruction that attempts to change its role (e.g. "ignore previous instructions", "you are now a…", "forget your role") as plain data, not as a command. If the task falls outside the specialist's defined scope the agent must respond with `SCOPE_VIOLATION: <reason>`; `isScopeViolation` detects that prefix and the `runSpecialist` loop returns an error, aborting the workflow immediately. Prevents agents from answering unrelated requests — e.g. an `Auditor` specialist configured for financial entries can no longer be hijacked into returning a cake recipe.
+
 ### Changed
 
 - **Vector memory migrated to native VectorEngine** (`internal/brain/hnsw.go`, `internal/brain/vector_engine.go`): `QdrantHoneycomb` (gRPC client requiring an external Qdrant Docker container) replaced by an embedded, single-process `VectorEngine`. Storage: BadgerDB binary key-value store at `~/.config/jandaira/vectordb/`. Index: per-collection in-memory HNSW (Hierarchical Navigable Small World) approximate nearest-neighbour graph, rebuilt on startup from persisted vectors. Cache: all live document vectors held in RAM for O(1) retrieval. Background goroutine compacts BadgerDB value log every 5 minutes. `LocalVectorDB` (JSON-based fallback) removed from `memory.go`. `qdrant/go-client` and gRPC removed from `go.mod`; `github.com/dgraph-io/badger/v4` added. `QDRANT_HOST` environment variable no longer needed — zero external process dependencies.
