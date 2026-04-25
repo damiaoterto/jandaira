@@ -80,13 +80,13 @@ func (g *GroupQueue) executeWithRetry(ctx context.Context, job Job) {
 
 		job.Retries = i
 		if i == job.MaxRetries {
-			fmt.Printf("Job %s failed after %d attempts: %v\n", job.ID, i, err)
+			fmt.Printf("Job %s failed after %d attempt(s): %v\n", job.ID, i+1, err)
 			return
 		}
 
 		// Exponential Backoff calculation: 2^attempt * 500ms
 		waitTime := time.Duration(math.Pow(2, float64(i))) * 500 * time.Millisecond
-		fmt.Printf("Job %s failed (attempt %d). Retrying in %v...\n", job.ID, i+1, waitTime)
+		fmt.Printf("Job %s failed (attempt %d): %v. Retrying in %v...\n", job.ID, i+1, err, waitTime)
 
 		select {
 		case <-time.After(waitTime):

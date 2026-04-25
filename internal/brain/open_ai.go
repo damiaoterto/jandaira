@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -15,6 +17,49 @@ type OpenAIBrain struct {
 	Model     string
 	MaxTokens int // 0 = let the API use its default
 	Client    *http.Client
+}
+
+// isTransientNetworkError returns true for connection-level errors that are
+// safe to retry (GOAWAY, reset, EOF). HTTP 4xx/5xx arrive as responses with
+// err==nil and must NOT be retried here.
+func isTransientNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "GOAWAY") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "broken pipe")
+}
+
+// httpDoWithRetry executes the request returned by newReq, retrying up to
+// maxRetries times on transient network errors with exponential backoff.
+func httpDoWithRetry(ctx context.Context, client *http.Client, newReq func() (*http.Request, error), maxRetries int) (*http.Response, error) {
+	var lastErr error
+	for i := 0; i <= maxRetries; i++ {
+		if i > 0 {
+			wait := time.Duration(math.Pow(2, float64(i-1))) * 500 * time.Millisecond
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		req, err := newReq()
+		if err != nil {
+			return nil, err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			return resp, nil
+		}
+		if !isTransientNetworkError(err) {
+			return nil, err
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 func NewOpenAIBrain(apiKey string, model string) *OpenAIBrain {
@@ -94,12 +139,17 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message, tools []Tool
 
 	jsonData, _ := json.Marshal(payload)
 
-	// Implementação de Exponential Backoff (Simplificada para legibilidade)
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+b.APIKey)
+	newReq := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+b.APIKey)
+		return req, nil
+	}
 
-	resp, err := b.Client.Do(req)
+	resp, err := httpDoWithRetry(ctx, b.Client, newReq, 3)
 	if err != nil {
 		return "", nil, ConsumptionReport{}, err
 	}
@@ -162,14 +212,17 @@ func (b *OpenAIBrain) Embed(ctx context.Context, text string) ([]float32, error)
 		return nil, fmt.Errorf("embed marshal: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", embedURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("embed new request: %w", err)
+	newEmbedReq := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, "POST", embedURL, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("embed new request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+b.APIKey)
+		return req, nil
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+b.APIKey)
 
-	resp, err := b.Client.Do(req)
+	resp, err := httpDoWithRetry(ctx, b.Client, newEmbedReq, 3)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %w", err)
 	}
@@ -224,11 +277,17 @@ func (b *OpenAIBrain) ChatJSON(ctx context.Context, messages []Message, schema m
 
 	jsonData, _ := json.Marshal(payload)
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+b.APIKey)
+	newJSONReq := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+b.APIKey)
+		return req, nil
+	}
 
-	resp, err := b.Client.Do(req)
+	resp, err := httpDoWithRetry(ctx, b.Client, newJSONReq, 3)
 	if err != nil {
 		return "", ConsumptionReport{}, err
 	}

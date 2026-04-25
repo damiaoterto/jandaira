@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- **`OpenAIBrain` — HTTP/2 GOAWAY transient retry** (`internal/brain/open_ai.go`): `Chat`, `ChatJSON`, and `Embed` made a single HTTP request with no retry logic; an OpenAI load-balancer connection rotation (HTTP/2 GOAWAY, `ErrCode=NO_ERROR`) propagated as a hard error and failed the entire job. Added `httpDoWithRetry` — up to 3 attempts with 500 ms → 1 s → 2 s exponential backoff for transient network errors (GOAWAY, connection reset, EOF, broken pipe). HTTP 4xx/5xx responses still fail immediately. Also fixed `executeWithRetry` in `internal/queue/group_queue.go`: the retry log omitted the actual error, and the final-failure log reported attempt count `i` instead of `i+1`.
+
 ### Security
 
 - **Prompt injection defense and scope enforcement for specialists** (`internal/swarm/queen.go`): every specialist's system prompt is now wrapped with a non-overridable scope enforcement block via `buildScopedSystemPrompt`. The block instructs the agent to treat any in-context instruction that attempts to change its role (e.g. "ignore previous instructions", "you are now a…", "forget your role") as plain data, not as a command. If the task falls outside the specialist's defined scope the agent must respond with `SCOPE_VIOLATION: <reason>`; `isScopeViolation` detects that prefix and the `runSpecialist` loop returns an error, aborting the workflow immediately. Prevents agents from answering unrelated requests — e.g. an `Auditor` specialist configured for financial entries can no longer be hijacked into returning a cake recipe.
