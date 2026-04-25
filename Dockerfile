@@ -1,32 +1,36 @@
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git build-essential \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache build-base ca-certificates tzdata
+
+COPY go.mod go.sum ./
+RUN go mod download
 
 COPY . .
 
-RUN go mod download
-RUN CGO_ENABLED=1 GOOS=linux go build -o jandaira-api ./cmd/api/main.go
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -ldflags="-w -s -extldflags '-static'" \
+    -trimpath \
+    -o jandaira-api ./cmd/api/main.go
 
-FROM golang:1.26-bookworm
+# pre-create data dir owned by runtime user
+RUN mkdir -p /home/nonroot/.config/jandaira && \
+    chown -R 1001:1001 /home/nonroot && \
+    echo "nonroot:x:1001:1001::/home/nonroot:/sbin/nologin" > /etc_passwd
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libstdc++6 \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd -r -m -d /home/appuser -s /bin/false appuser
+FROM scratch
 
 WORKDIR /app
 
-COPY --from=builder /app/jandaira-api .
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /etc_passwd /etc/passwd
+COPY --from=builder /home/nonroot /home/nonroot
+COPY --from=builder /app/jandaira-api /app/jandaira
 
-RUN chown -R appuser:appuser /app
-
-USER appuser
+USER 1001
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "/app/jandaira-api"]
+CMD ["/app/jandaira"]

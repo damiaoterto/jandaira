@@ -4,9 +4,15 @@ services:
       context: .
     ports:
       - "8080:8080"
-    networks:
-      - jandaira
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    volumes:
+      - api_data:/home/nonroot/.config
+    tmpfs:
+      - /tmp
 
-networks:
-  jandaira:
-    driver: bridge
+volumes:
+  api_data:
