@@ -14,23 +14,23 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
     -trimpath \
     -o jandaira-api ./cmd/api/main.go
 
-# pre-create data dir owned by runtime user
-RUN mkdir -p /home/nonroot/.config/jandaira && \
-    chown -R 1001:1001 /home/nonroot && \
-    echo "nonroot:x:1001:1001::/home/nonroot:/sbin/nologin" > /etc_passwd
-
-FROM scratch
+FROM nginx:alpine
 
 WORKDIR /app
 
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=builder /etc_passwd /etc/passwd
-COPY --from=builder /home/nonroot /home/nonroot
+ARG FRONTEND_VERSION="1.0.2"
+
+RUN apk add --no-cache curl bash ca-certificates \
+     openssl ncurses coreutils make gcc g++ libgcc \
+    linux-headers caddy
+
+COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+
 COPY --from=builder /app/jandaira-api /app/jandaira
+ADD ./jandaira-frontend-v${FRONTEND_VERSION}.tgz /usr/share/nginx/html/
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-USER 1001
+EXPOSE 9000 8080
 
-EXPOSE 8080
-
-CMD ["/app/jandaira"]
+CMD ["sh", "-c", "/app/entrypoint.sh"]

@@ -24,7 +24,7 @@ func workspaceRoot() string {
 	if dir := os.Getenv("WORKSPACE_DIR"); dir != "" {
 		return dir
 	}
-	return "/home/nonroot/workspace"
+	return "/home/nonroot/.config/workspace"
 }
 
 // handleUploadDocument receives a document file, extracts its text, embeds each

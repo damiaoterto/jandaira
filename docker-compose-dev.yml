@@ -4,11 +4,6 @@ services:
       context: .
     ports:
       - "8080:8080"
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    read_only: true
     volumes:
       - api_data:/home/nonroot/.config
     tmpfs:
