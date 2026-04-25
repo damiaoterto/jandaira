@@ -90,7 +90,7 @@ func (s *Server) handleDeleteSession(c *gin.Context) {
 	}
 
 	// Remove workspace files created during document upload.
-	sessionWorkspace := filepath.Join(workspaceDir, id)
+	sessionWorkspace := filepath.Join(workspaceRoot(), "sessions",id)
 	if err := os.RemoveAll(sessionWorkspace); err != nil {
 		log.Printf("WARN handleDeleteSession cleanup workspace id=%s: %v", id, err)
 	}
@@ -167,7 +167,7 @@ func (s *Server) handleSessionDispatch(c *gin.Context) {
 
 	// Inject uploaded document paths into the goal so the Queen instructs
 	// agents to read the correct files from the workspace.
-	docDir := filepath.Join(workspaceDir, sessionID)
+	docDir := filepath.Join(workspaceRoot(), "sessions",sessionID)
 	if entries, err := os.ReadDir(docDir); err == nil && len(entries) > 0 {
 		var paths []string
 		for _, e := range entries {

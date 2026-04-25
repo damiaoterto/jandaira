@@ -20,9 +20,12 @@ import (
 
 const maxUploadSize = 32 << 20 // 32 MB
 
-// workspaceDir is the root directory where extracted document texts are written
-// so that the read_file tool can access them by name.
-const workspaceDir = "workspace/sessions"
+func workspaceRoot() string {
+	if dir := os.Getenv("WORKSPACE_DIR"); dir != "" {
+		return dir
+	}
+	return "/home/nonroot/workspace"
+}
 
 // handleUploadDocument receives a document file, extracts its text, embeds each
 // chunk, stores the vectors in ChromaDB, and writes the extracted text to disk
@@ -419,8 +422,8 @@ func toValidUTF8(s string) string {
 
 // saveColmeiaTextToDisk writes extracted text to workspace/colmeias/{colmeiaID}/{stem}.txt.
 func saveColmeiaTextToDisk(colmeiaID, originalFilename, text string) (string, error) {
-	const colmeiaWorkspaceDir = "workspace/colmeias"
-	dir := filepath.Join(colmeiaWorkspaceDir, colmeiaID)
+	colmeiaDir := filepath.Join(workspaceRoot(), "colmeias")
+	dir := filepath.Join(colmeiaDir, colmeiaID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("falha ao criar diretório workspace: %w", err)
 	}
@@ -433,20 +436,19 @@ func saveColmeiaTextToDisk(colmeiaID, originalFilename, text string) (string, er
 		return "", fmt.Errorf("falha ao escrever arquivo no workspace: %w", err)
 	}
 
-	return filepath.Join(colmeiaWorkspaceDir, colmeiaID, filename), nil
+	return filepath.Join(colmeiaDir, colmeiaID, filename), nil
 }
 
 // saveTextToDisk writes the extracted text to workspace/sessions/{sessionID}/{stem}.txt
 // so that the read_file tool can read it by path during mission execution.
 // Returns the relative path that agents should use with read_file.
 func saveTextToDisk(sessionID, originalFilename, text string) (string, error) {
-	dir := filepath.Join(workspaceDir, sessionID)
+	sessionsDir := filepath.Join(workspaceRoot(), "sessions")
+	dir := filepath.Join(sessionsDir, sessionID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("falha ao criar diretório workspace: %w", err)
 	}
 
-	// Strip the original extension and always save as .txt so agents
-	// know exactly what extension to use with read_file.
 	base := strings.TrimSuffix(originalFilename, filepath.Ext(originalFilename))
 	filename := sanitizeID(base) + ".txt"
 	fullPath := filepath.Join(dir, filename)
@@ -455,8 +457,7 @@ func saveTextToDisk(sessionID, originalFilename, text string) (string, error) {
 		return "", fmt.Errorf("falha ao escrever arquivo no workspace: %w", err)
 	}
 
-	// Return the relative path that read_file resolves from CWD.
-	return filepath.Join(workspaceDir, sessionID, filename), nil
+	return filepath.Join(sessionsDir, sessionID, filename), nil
 }
 
 // sanitizeID replaces characters not safe in a ChromaDB document ID or filename.
