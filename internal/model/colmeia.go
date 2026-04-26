@@ -23,9 +23,10 @@ type Colmeia struct {
 	QueenManaged bool                `gorm:"not null"                                             json:"queen_managed"`
 	CreatedAt    time.Time           `                                                            json:"created_at"`
 	UpdatedAt    time.Time           `                                                            json:"updated_at"`
-	Agentes      []AgenteColmeia     `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"agentes,omitempty"`
-	Historico    []HistoricoDespacho `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"historico,omitempty"`
-	Skills       []Skill             `gorm:"many2many:colmeia_skills;"                            json:"skills,omitempty"`
+	Agentes          []AgenteColmeia     `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"agentes,omitempty"`
+	Historico        []HistoricoDespacho `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"historico,omitempty"`
+	OutboundWebhooks []OutboundWebhook   `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"outbound_webhooks,omitempty"`
+	Skills           []Skill             `gorm:"many2many:colmeia_skills;"                            json:"skills,omitempty"`
 }
 
 func (c *Colmeia) BeforeCreate(_ *gorm.DB) error {

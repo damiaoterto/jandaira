@@ -70,7 +70,7 @@ func NewOpenAIBrain(apiKey string, model string) *OpenAIBrain {
 	}
 }
 
-// Estruturas internas para garantir que o JSON para a OpenAI fique perfeito
+// Internal structures to ensure JSON for OpenAI is perfect
 type oaiToolCall struct {
 	ID       string `json:"id"`
 	Type     string `json:"type"`
@@ -90,7 +90,7 @@ type oaiMessage struct {
 func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message, tools []ToolDefinition) (string, []ToolCall, ConsumptionReport, error) {
 	url := "https://api.openai.com/v1/chat/completions"
 
-	// 1. Formatar Mensagens
+	// 1. Format Messages
 	var formattedMessages []oaiMessage
 	for _, msg := range messages {
 		oaiMsg := oaiMessage{
@@ -112,7 +112,7 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message, tools []Tool
 		formattedMessages = append(formattedMessages, oaiMsg)
 	}
 
-	// 2. Formatar Ferramentas
+	// 2. Format Tools
 	payload := map[string]interface{}{
 		"model":    b.Model,
 		"messages": formattedMessages,
@@ -159,7 +159,7 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message, tools []Tool
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", nil, ConsumptionReport{}, fmt.Errorf("erro API OpenAI: %s", string(body))
+		return "", nil, ConsumptionReport{}, fmt.Errorf("OpenAI API error: %s", string(body))
 	}
 
 	var result struct {
@@ -190,7 +190,7 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message, tools []Tool
 
 	msg := result.Choices[0].Message
 
-	// Converter ToolCalls da OpenAI de volta para o formato interno
+	// Convert OpenAI ToolCalls back to internal format
 	var internalToolCalls []ToolCall
 	for _, tc := range msg.ToolCalls {
 		internalToolCalls = append(internalToolCalls, ToolCall{

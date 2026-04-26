@@ -24,6 +24,7 @@
 - **蜂巢（`Honeycomb`）** 是两层持久化记忆系统：`ShortTermMemory` 将近期上下文保存在 RAM 中并自动按 TTL 过期；内嵌的 `VectorEngine`（BadgerDB + HNSW）将整合后的长期知识作为向量嵌入归档——无需外部进程。
 - **知识图谱（`KnowledgeGraph`）** 映射智能体、主题和工具之间的关系——蜂王在每次任务前查询它，以复用在类似目标上已成功过的专家配置文件。
 - **养蜂人（Beekeeper）** 是回路中的人类：可以在 AI 执行任何操作之前批准或阻止它。
+- **Webhook（Webhook Engine）** 是外部 HTTP 触发器，允许 CI/CD 系统、GitHub、Prometheus 等工具只需调用一个 URL 即可启动智能体蜂群。**GoalTemplate** 使用 Go 原生的 `text/template` 将传入的 JSON 载荷转换为蜂王将处理的目标——无需重新编译二进制文件。
 
 ---
 
@@ -329,6 +330,94 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 
 ---
 
+## 🪝 Webhook Engine
+
+**Webhook Engine** 允许外部系统通过 HTTP 触发蜂巢，无需额外认证。每个 webhook 在 URL 中有唯一的 `slug`、基于 Go 原生 `text/template` 的 **GoalTemplate**，以及可选的 `secret` 用于 HMAC-SHA256 验证。
+
+### 执行流程
+
+```
+外部系统（GitHub、Prometheus、Slack、CI/CD…）
+     │  POST /api/webhooks/monitor-deploy
+     │  Body: {"project_name": "Jandaira", "env": "prod"}
+     ▼
+┌─────────────────────────────────────────────┐
+│              Webhook Engine                  │
+│                                             │
+│  1. 通过 slug 查找 webhook                  │
+│  2. 验证 HMAC-SHA256（如果设置了 secret）   │
+│  3. 用 payload 渲染 GoalTemplate：          │
+│     "分析 Jandaira 在 prod 的部署"          │
+│  4. 调用 Queen.DispatchWorkflow             │
+└─────────────────────────────────────────────┘
+     │
+     ▼
+蜂王 → AssembleSwarm / BuildSpecialists → 结果通过 WebSocket 推送
+```
+
+### GoalTemplate
+
+使用 Go 原生 `text/template`。JSON payload 中的任何字段均可通过 `{{.字段}}` 引用：
+
+```
+"分析项目 {{.project_name}} 在环境 {{.env}} 中的部署"
+"告警：{{.alertname}} — 实例 {{.instance}}（{{.severity}}）"
+"{{.repository.name}} 中的 PR #{{.number}}：{{.title}}"
+```
+
+### HMAC-SHA256 验证
+
+如果设置了 `secret`，调用方必须包含以下请求头：
+
+```
+X-Hub-Signature-256: sha256=<body 的十六进制 HMAC-SHA256>
+```
+
+与 GitHub Webhooks 标准兼容。签名无效的 payload 将收到 `401 Unauthorized`。
+
+### Outbound Webhooks (出站 Webhooks)
+
+Jandaira 还支持 **Outbound Webhooks**，允许蜂巢在任务完成后自动将处理结果发送到外部系统（如 Discord、Slack 等）。可以通过 `BodyTemplate` 自定义请求格式。
+
+模板内置了发送结构化 JSON payload 所需的基本函数（过滤器）：
+- `json`：安全地转义 JSON 中的文本（如换行符、引号）。
+- `truncate <长度>`：将字符串截断为最大长度，防止在 Discord 等 API 中出现错误（2000 个字符限制）。
+- `normalize`：清理 AI 文本，删除编排元数据、内部日志和内存转储，仅保留最后一个代理的最终报告。
+
+**出站 Payload 示例：**
+```json
+{
+  "content": {{.result | normalize | truncate 1900 | json}}
+}
+```
+
+### 完整示例
+
+```bash
+# 创建 webhook
+curl -X POST http://localhost:8080/api/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Monitor Deploy",
+    "slug": "monitor-deploy",
+    "colmeia_id": "<蜂巢ID>",
+    "secret": "我的密钥",
+    "goal_template": "分析项目 {{.project_name}} 在环境 {{.env}} 中的部署",
+    "active": true
+  }'
+
+# 触发（带 HMAC 签名）
+BODY='{"project_name":"Jandaira","env":"prod"}'
+SIG="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "我的密钥" | awk '{print $2}')"
+
+curl -X POST http://localhost:8080/api/webhooks/monitor-deploy \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature-256: $SIG" \
+  -d "$BODY"
+```
+
+---
+
 ## 🌐 API 参考
 
 使用 `./jandaira-api --port 8080` 启动 HTTP 服务器，提供以下路由：
@@ -374,6 +463,17 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 | `GET` | `/api/colmeias/:id/agentes/:agentId` | 按 ID 获取智能体 |
 | `PUT` | `/api/colmeias/:id/agentes/:agentId` | 编辑智能体（名称、提示词、工具） |
 | `DELETE` | `/api/colmeias/:id/agentes/:agentId` | 从蜂巢移除智能体 |
+
+#### Webhook 管理
+
+| 方法     | 路由                    | 描述                                     |
+| -------- | ----------------------- | ---------------------------------------- |
+| `POST`   | `/api/webhooks/:slug`   | **公开** — 触发关联蜂巢的工作流          |
+| `GET`    | `/api/webhooks`         | 列出所有 webhook                         |
+| `POST`   | `/api/webhooks`         | 创建 webhook                             |
+| `GET`    | `/api/webhooks/:id`     | 按 ID 获取 webhook                       |
+| `PUT`    | `/api/webhooks/:id`     | 更新 webhook                             |
+| `DELETE` | `/api/webhooks/:id`     | 删除 webhook                             |
 
 **示例 — 创建用户自定义智能体的蜂巢：**
 

@@ -25,6 +25,7 @@ Esse é exatamente o modelo de arquitetura que o projeto implementa:
 - A **Colmeia (`Honeycomb`)** é o sistema de memória persistente em duas camadas: o `ShortTermMemory` mantém o contexto recente em RAM com expiração automática por TTL; o `VectorEngine` (BadgerDB + HNSW embutido) arquiva o conhecimento consolidado como vetores de longo prazo — sem dependências externas.
 - O **Grafo de Conhecimento (`KnowledgeGraph`)** mapeia relações entre agentes, tópicos e ferramentas — a Rainha consulta esse grafo antes de cada missão para reutilizar perfis de especialistas que já obtiveram sucesso em objetivos semelhantes.
 - O **Apicultor** é o humano no loop: pode aprovar ou bloquear qualquer ação da IA antes de ela ser executada.
+- Os **Webhooks** são gatilhos HTTP externos que permitem sistemas de CI/CD, GitHub, Prometheus e similares dispararem enxames de agentes apenas chamando uma URL. O **GoalTemplate** usa `text/template` do Go para transformar o payload JSON recebido no objetivo que a Rainha processará — sem recompilar o binário.
 
 ---
 
@@ -393,6 +394,104 @@ Isso simula um canal IPC seguro, onde mesmo que um agente seja comprometido, ele
 
 ---
 
+## 🪝 Webhook Engine
+
+O **Webhook Engine** permite que sistemas externos acionem colmeias via HTTP, sem autenticação adicional. Cada webhook possui um `slug` único na URL, um `GoalTemplate` baseado em `text/template` do Go e, opcionalmente, um `secret` para validação HMAC-SHA256.
+
+### Fluxo
+
+```
+Sistema externo (GitHub, Prometheus, Slack, CI/CD…)
+     │  POST /api/webhooks/monitor-deploy
+     │  Body: {"project_name": "Jandaira", "env": "prod"}
+     ▼
+┌─────────────────────────────────────────────┐
+│              Webhook Engine                  │
+│                                             │
+│  1. Localiza webhook pelo slug              │
+│  2. Valida HMAC-SHA256 (se secret definido) │
+│  3. Renderiza GoalTemplate com o payload:   │
+│     "Analise o deploy de Jandaira em prod"  │
+│  4. Chama Queen.DispatchWorkflow            │
+└─────────────────────────────────────────────┘
+     │
+     ▼
+Queen → AssembleSwarm / BuildSpecialists → Resultado via WebSocket
+```
+
+### GoalTemplate
+
+Usa `text/template` nativo do Go — qualquer campo do payload JSON é referenciável com `{{.campo}}`:
+
+```
+"Analise o deploy do projeto {{.project_name}} no ambiente {{.env}}"
+"Alerta: {{.alertname}} — instância {{.instance}} ({{.severity}})"
+"PR #{{.number}} em {{.repository.name}}: {{.title}}"
+```
+
+> **Dica:** Campos aninhados como `{{.repository.name}}` funcionam desde que o valor seja um objeto JSON desserializado como `map[string]interface{}`.
+
+### Validação HMAC-SHA256
+
+Se `secret` estiver configurado, o chamador deve enviar o header:
+
+```
+X-Hub-Signature-256: sha256=<hex-encoded-HMAC-SHA256-do-body>
+```
+
+Compatível com o padrão GitHub Webhooks. Payloads sem assinatura válida recebem `401 Unauthorized`.
+
+### Outbound Webhooks (Webhooks de Saída)
+
+O Jandaira também suporta **Outbound Webhooks**, permitindo que a colmeia envie automaticamente o resultado do seu processamento para sistemas externos (Discord, Slack, etc.) assim que a missão for concluída. O formato da requisição é personalizável via `BodyTemplate`.
+
+O template possui funções (filtros) integradas essenciais para enviar payloads JSON estruturados:
+- `json`: Escapa o texto com segurança (quebras de linha, aspas) para dentro do JSON.
+- `truncate <limite>`: Corta o tamanho máximo da string, evitando erros em APIs como a do Discord (limite de 2000 caracteres).
+- `normalize`: Limpa o texto da IA, removendo metadados de orquestração, logs internos e dumps de memória, entregando apenas o relatório final do último agente.
+
+**Exemplo de payload de saída:**
+```json
+{
+  "content": {{.result | normalize | truncate 1900 | json}}
+}
+```
+
+### Exemplo completo
+
+```bash
+# 1. Criar webhook
+curl -X POST http://localhost:8080/api/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Monitor Deploy",
+    "slug": "monitor-deploy",
+    "colmeia_id": "<id-da-colmeia>",
+    "secret": "meu-segredo",
+    "goal_template": "Analise o deploy do projeto {{.project_name}} no ambiente {{.env}}",
+    "active": true
+  }'
+
+# 2. Disparar (sistema externo com assinatura HMAC)
+BODY='{"project_name":"Jandaira","env":"prod"}'
+SIG="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "meu-segredo" | awk '{print $2}')"
+
+curl -X POST http://localhost:8080/api/webhooks/monitor-deploy \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature-256: $SIG" \
+  -d "$BODY"
+
+# Resposta 202:
+# {
+#   "webhook_slug": "monitor-deploy",
+#   "colmeia_id": "...",
+#   "historico_id": "...",
+#   "mode": "queen_managed"
+# }
+```
+
+---
+
 ## 🌐 API Reference
 
 O servidor HTTP é iniciado com `./jandaira-api --port 8080` e expõe as seguintes rotas:
@@ -482,6 +581,17 @@ curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
   -H "Content-Type: application/json" \
   -d '{"goal": "Com base na pesquisa anterior, faça um resumo executivo"}'
 ```
+
+#### Webhooks
+
+| Método   | Rota                    | Descrição                                             |
+| -------- | ----------------------- | ----------------------------------------------------- |
+| `POST`   | `/api/webhooks/:slug`   | **Público** — aciona workflow da colmeia associada    |
+| `GET`    | `/api/webhooks`         | Lista todos os webhooks                               |
+| `POST`   | `/api/webhooks`         | Cria webhook                                          |
+| `GET`    | `/api/webhooks/:id`     | Busca webhook por ID                                  |
+| `PUT`    | `/api/webhooks/:id`     | Atualiza webhook                                      |
+| `DELETE` | `/api/webhooks/:id`     | Remove webhook                                        |
 
 #### `POST /api/dispatch`
 
