@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- **OpenRouter provider** (`internal/brain/open_router.go`, `internal/api/setup_handler.go`): new `OpenRouterBrain` implements `Brain` and `StructuredBrain`, routing requests to any model available on openrouter.ai via their OpenAI-compatible API. `Chat` supports tool calling; `ChatJSON` uses `response_format: json_schema` for structured outputs; `Embed` returns an informative error (same policy as Anthropic). Default model `openai/gpt-4o-mini`. `POST /api/setup` with `"provider": "openrouter"` stores the API key as `OPENROUTER_API_KEY` in the vault and wires the brain to the Queen. 90 s HTTP timeout (vs 60 s for OpenAI) to absorb upstream routing latency. Transient-network retry reuses `httpDoWithRetry` from `open_ai.go`.
+
 ### Fixed
 
 - **`OpenAIBrain` — HTTP/2 GOAWAY transient retry** (`internal/brain/open_ai.go`): `Chat`, `ChatJSON`, and `Embed` made a single HTTP request with no retry logic; an OpenAI load-balancer connection rotation (HTTP/2 GOAWAY, `ErrCode=NO_ERROR`) propagated as a hard error and failed the entire job. Added `httpDoWithRetry` — up to 3 attempts with 500 ms → 1 s → 2 s exponential backoff for transient network errors (GOAWAY, connection reset, EOF, broken pipe). HTTP 4xx/5xx responses still fail immediately. Also fixed `executeWithRetry` in `internal/queue/group_queue.go`: the retry log omitted the actual error, and the final-failure log reported attempt count `i` instead of `i+1`.

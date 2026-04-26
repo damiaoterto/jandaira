@@ -51,6 +51,8 @@ func (s *Server) handleSetup(c *gin.Context) {
 		switch cfg.Provider {
 		case "anthropic":
 			cfg.Model = "claude-sonnet-4-6"
+		case "openrouter":
+			cfg.Model = "openai/gpt-4o-mini"
 		default:
 			cfg.Model = "gpt-4o-mini"
 		}
@@ -77,6 +79,16 @@ func (s *Server) handleSetup(c *gin.Context) {
 				ab.MaxTokens = cfg.MaxNectar
 			}
 			s.Queen.Brain = ab
+		case "openrouter":
+			if v, err := security.InitVault(repoDir); err == nil {
+				_ = v.SaveSecret("OPENROUTER_API_KEY", rawReq.APIKey)
+			}
+			os.Setenv("OPENROUTER_API_KEY", rawReq.APIKey)
+			rb := brain.NewOpenRouterBrain(rawReq.APIKey, cfg.Model)
+			if cfg.MaxNectar > 0 {
+				rb.MaxTokens = cfg.MaxNectar
+			}
+			s.Queen.Brain = rb
 		default:
 			if v, err := security.InitVault(repoDir); err == nil {
 				_ = v.SaveSecret("OPENAI_API_KEY", rawReq.APIKey)
