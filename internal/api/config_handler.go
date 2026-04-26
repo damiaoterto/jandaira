@@ -79,19 +79,31 @@ func (s *Server) handleUpdateConfig(c *gin.Context) {
 			}
 			os.Setenv("ANTHROPIC_API_KEY", req.APIKey)
 			ab := brain.NewAnthropicBrain(req.APIKey, cfg.Model)
-			if cfg.MaxNectar > 0 {
-				ab.MaxTokens = cfg.MaxNectar
-			}
+			ab.MaxTokensFn = s.maxTokensFn()
 			s.Queen.Brain = ab
+		case "openrouter":
+			if v, err := security.InitVault(repoDir); err == nil {
+				_ = v.SaveSecret("OPENROUTER_API_KEY", req.APIKey)
+			}
+			os.Setenv("OPENROUTER_API_KEY", req.APIKey)
+			rb := brain.NewOpenRouterBrain(req.APIKey, cfg.Model)
+			rb.MaxTokensFn = s.maxTokensFn()
+			s.Queen.Brain = rb
+		case "groq":
+			if v, err := security.InitVault(repoDir); err == nil {
+				_ = v.SaveSecret("GROQ_API_KEY", req.APIKey)
+			}
+			os.Setenv("GROQ_API_KEY", req.APIKey)
+			gb := brain.NewGroqBrain(req.APIKey, cfg.Model)
+			gb.MaxTokensFn = s.maxTokensFn()
+			s.Queen.Brain = gb
 		default:
 			if v, err := security.InitVault(repoDir); err == nil {
 				_ = v.SaveSecret("OPENAI_API_KEY", req.APIKey)
 			}
 			os.Setenv("OPENAI_API_KEY", req.APIKey)
 			ob := brain.NewOpenAIBrain(req.APIKey, cfg.Model)
-			if cfg.MaxNectar > 0 {
-				ob.MaxTokens = cfg.MaxNectar
-			}
+			ob.MaxTokensFn = s.maxTokensFn()
 			s.Queen.Brain = ob
 		}
 	} else if req.Provider != "" {
@@ -107,10 +119,28 @@ func (s *Server) handleUpdateConfig(c *gin.Context) {
 				}
 			}
 			ab := brain.NewAnthropicBrain(apiKey, cfg.Model)
-			if cfg.MaxNectar > 0 {
-				ab.MaxTokens = cfg.MaxNectar
-			}
+			ab.MaxTokensFn = s.maxTokensFn()
 			s.Queen.Brain = ab
+		case "openrouter":
+			apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+			if apiKey == "" && vault != nil {
+				if key, err := vault.GetSecret("OPENROUTER_API_KEY"); err == nil {
+					apiKey = strings.TrimSpace(key)
+				}
+			}
+			rb := brain.NewOpenRouterBrain(apiKey, cfg.Model)
+			rb.MaxTokensFn = s.maxTokensFn()
+			s.Queen.Brain = rb
+		case "groq":
+			apiKey := strings.TrimSpace(os.Getenv("GROQ_API_KEY"))
+			if apiKey == "" && vault != nil {
+				if key, err := vault.GetSecret("GROQ_API_KEY"); err == nil {
+					apiKey = strings.TrimSpace(key)
+				}
+			}
+			gb := brain.NewGroqBrain(apiKey, cfg.Model)
+			gb.MaxTokensFn = s.maxTokensFn()
+			s.Queen.Brain = gb
 		default:
 			apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 			if apiKey == "" && vault != nil {
@@ -119,9 +149,7 @@ func (s *Server) handleUpdateConfig(c *gin.Context) {
 				}
 			}
 			ob := brain.NewOpenAIBrain(apiKey, cfg.Model)
-			if cfg.MaxNectar > 0 {
-				ob.MaxTokens = cfg.MaxNectar
-			}
+			ob.MaxTokensFn = s.maxTokensFn()
 			s.Queen.Brain = ob
 		}
 	}

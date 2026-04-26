@@ -13,10 +13,10 @@ import (
 )
 
 type OpenAIBrain struct {
-	APIKey    string
-	Model     string
-	MaxTokens int // 0 = let the API use its default
-	Client    *http.Client
+	APIKey      string
+	Model       string
+	MaxTokensFn func() int // nil = let the API use its default
+	Client      *http.Client
 }
 
 // isTransientNetworkError returns true for connection-level errors that are
@@ -117,8 +117,10 @@ func (b *OpenAIBrain) Chat(ctx context.Context, messages []Message, tools []Tool
 		"model":    b.Model,
 		"messages": formattedMessages,
 	}
-	if b.MaxTokens > 0 {
-		payload["max_completion_tokens"] = b.MaxTokens
+	if b.MaxTokensFn != nil {
+		if n := b.MaxTokensFn(); n > 0 {
+			payload["max_completion_tokens"] = n
+		}
 	}
 
 	if len(tools) > 0 {
@@ -271,8 +273,10 @@ func (b *OpenAIBrain) ChatJSON(ctx context.Context, messages []Message, schema m
 			"json_schema": schema,
 		},
 	}
-	if b.MaxTokens > 0 {
-		payload["max_completion_tokens"] = b.MaxTokens
+	if b.MaxTokensFn != nil {
+		if n := b.MaxTokensFn(); n > 0 {
+			payload["max_completion_tokens"] = n
+		}
 	}
 
 	jsonData, _ := json.Marshal(payload)

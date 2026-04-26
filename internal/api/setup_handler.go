@@ -53,6 +53,8 @@ func (s *Server) handleSetup(c *gin.Context) {
 			cfg.Model = "claude-sonnet-4-6"
 		case "openrouter":
 			cfg.Model = "openai/gpt-4o-mini"
+		case "groq":
+			cfg.Model = "llama-3.3-70b-versatile"
 		default:
 			cfg.Model = "gpt-4o-mini"
 		}
@@ -75,9 +77,7 @@ func (s *Server) handleSetup(c *gin.Context) {
 			}
 			os.Setenv("ANTHROPIC_API_KEY", rawReq.APIKey)
 			ab := brain.NewAnthropicBrain(rawReq.APIKey, cfg.Model)
-			if cfg.MaxNectar > 0 {
-				ab.MaxTokens = cfg.MaxNectar
-			}
+			ab.MaxTokensFn = s.maxTokensFn()
 			s.Queen.Brain = ab
 		case "openrouter":
 			if v, err := security.InitVault(repoDir); err == nil {
@@ -85,19 +85,23 @@ func (s *Server) handleSetup(c *gin.Context) {
 			}
 			os.Setenv("OPENROUTER_API_KEY", rawReq.APIKey)
 			rb := brain.NewOpenRouterBrain(rawReq.APIKey, cfg.Model)
-			if cfg.MaxNectar > 0 {
-				rb.MaxTokens = cfg.MaxNectar
-			}
+			rb.MaxTokensFn = s.maxTokensFn()
 			s.Queen.Brain = rb
+		case "groq":
+			if v, err := security.InitVault(repoDir); err == nil {
+				_ = v.SaveSecret("GROQ_API_KEY", rawReq.APIKey)
+			}
+			os.Setenv("GROQ_API_KEY", rawReq.APIKey)
+			gb := brain.NewGroqBrain(rawReq.APIKey, cfg.Model)
+			gb.MaxTokensFn = s.maxTokensFn()
+			s.Queen.Brain = gb
 		default:
 			if v, err := security.InitVault(repoDir); err == nil {
 				_ = v.SaveSecret("OPENAI_API_KEY", rawReq.APIKey)
 			}
 			os.Setenv("OPENAI_API_KEY", rawReq.APIKey)
 			ob := brain.NewOpenAIBrain(rawReq.APIKey, cfg.Model)
-			if cfg.MaxNectar > 0 {
-				ob.MaxTokens = cfg.MaxNectar
-			}
+			ob.MaxTokensFn = s.maxTokensFn()
 			s.Queen.Brain = ob
 		}
 	}

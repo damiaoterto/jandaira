@@ -8,35 +8,35 @@ import (
 	"time"
 )
 
-const openRouterBaseURL = "https://openrouter.ai/api/v1/chat/completions"
+const groqBaseURL = "https://api.groq.com/openai/v1/chat/completions"
 
-// OpenRouterBrain implements Brain using the OpenRouter API, which exposes an
-// OpenAI-compatible interface that routes requests to many upstream LLMs.
-type OpenRouterBrain struct {
+// GroqBrain implements Brain using the Groq LPU inference API, which exposes
+// an OpenAI-compatible interface.
+type GroqBrain struct {
 	APIKey    string
 	Model     string
-	MaxTokensFn func() int // nil = let upstream use its default
+	MaxTokensFn func() int // nil = let the API use its default
 	Client    *http.Client
 }
 
-// NewOpenRouterBrain creates a new OpenRouterBrain with a sensible HTTP timeout.
-func NewOpenRouterBrain(apiKey, model string) *OpenRouterBrain {
-	return &OpenRouterBrain{
+// NewGroqBrain creates a new GroqBrain with a sensible HTTP timeout.
+func NewGroqBrain(apiKey, model string) *GroqBrain {
+	return &GroqBrain{
 		APIKey: apiKey,
 		Model:  model,
-		Client: &http.Client{Timeout: 90 * time.Second},
+		Client: &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
-func (b *OpenRouterBrain) GetProviderName() string { return "openrouter" }
+func (b *GroqBrain) GetProviderName() string { return "groq" }
 
-// Embed is not supported by OpenRouter. Memory features are disabled when
-// using this provider.
-func (b *OpenRouterBrain) Embed(_ context.Context, _ string) ([]float32, error) {
-	return nil, fmt.Errorf("openrouter provider does not support embeddings; memory features are disabled")
+// Embed is not supported by Groq. Memory features are disabled when using
+// this provider.
+func (b *GroqBrain) Embed(_ context.Context, _ string) ([]float32, error) {
+	return nil, fmt.Errorf("groq provider does not support embeddings; memory features are disabled")
 }
 
-func (b *OpenRouterBrain) Chat(ctx context.Context, messages []Message, tools []ToolDefinition) (string, []ToolCall, ConsumptionReport, error) {
+func (b *GroqBrain) Chat(ctx context.Context, messages []Message, tools []ToolDefinition) (string, []ToolCall, ConsumptionReport, error) {
 	var formattedMessages []oaiMessage
 	for _, msg := range messages {
 		oaiMsg := oaiMessage{
@@ -63,7 +63,7 @@ func (b *OpenRouterBrain) Chat(ctx context.Context, messages []Message, tools []
 	}
 	if b.MaxTokensFn != nil {
 		if n := b.MaxTokensFn(); n > 0 {
-			payload["max_tokens"] = n
+			payload["max_completion_tokens"] = n
 		}
 	}
 	if len(tools) > 0 {
@@ -82,12 +82,12 @@ func (b *OpenRouterBrain) Chat(ctx context.Context, messages []Message, tools []
 		payload["tool_choice"] = "auto"
 	}
 
-	body, status, err := doPostWithFallback(ctx, b.Client, openRouterBaseURL, b.APIKey, payload)
+	body, status, err := doPostWithFallback(ctx, b.Client, groqBaseURL, b.APIKey, payload)
 	if err != nil {
-		return "", nil, ConsumptionReport{}, fmt.Errorf("openrouter chat request: %w", err)
+		return "", nil, ConsumptionReport{}, fmt.Errorf("groq chat request: %w", err)
 	}
 	if status != http.StatusOK {
-		return "", nil, ConsumptionReport{}, fmt.Errorf("openrouter API error %d: %s", status, string(body))
+		return "", nil, ConsumptionReport{}, fmt.Errorf("groq API error %d: %s", status, string(body))
 	}
 
 	var result struct {
@@ -104,10 +104,10 @@ func (b *OpenRouterBrain) Chat(ctx context.Context, messages []Message, tools []
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", nil, ConsumptionReport{}, fmt.Errorf("openrouter chat decode: %w", err)
+		return "", nil, ConsumptionReport{}, fmt.Errorf("groq chat decode: %w", err)
 	}
 	if len(result.Choices) == 0 {
-		return "", nil, ConsumptionReport{}, fmt.Errorf("openrouter returned empty choices (check API key or model quota)")
+		return "", nil, ConsumptionReport{}, fmt.Errorf("groq returned empty choices (check API key or model quota)")
 	}
 
 	report := ConsumptionReport{
@@ -129,8 +129,8 @@ func (b *OpenRouterBrain) Chat(ctx context.Context, messages []Message, tools []
 	return msg.Content, toolCalls, report, nil
 }
 
-// ChatJSON enforces a JSON schema response via OpenRouter's response_format.
-func (b *OpenRouterBrain) ChatJSON(ctx context.Context, messages []Message, schema map[string]interface{}) (string, ConsumptionReport, error) {
+// ChatJSON enforces JSON output via Groq's response_format parameter.
+func (b *GroqBrain) ChatJSON(ctx context.Context, messages []Message, schema map[string]interface{}) (string, ConsumptionReport, error) {
 	var formattedMessages []oaiMessage
 	for _, msg := range messages {
 		formattedMessages = append(formattedMessages, oaiMessage{
@@ -149,16 +149,16 @@ func (b *OpenRouterBrain) ChatJSON(ctx context.Context, messages []Message, sche
 	}
 	if b.MaxTokensFn != nil {
 		if n := b.MaxTokensFn(); n > 0 {
-			payload["max_tokens"] = n
+			payload["max_completion_tokens"] = n
 		}
 	}
 
-	body, status, err := doPostWithFallback(ctx, b.Client, openRouterBaseURL, b.APIKey, payload)
+	body, status, err := doPostWithFallback(ctx, b.Client, groqBaseURL, b.APIKey, payload)
 	if err != nil {
-		return "", ConsumptionReport{}, fmt.Errorf("openrouter json chat request: %w", err)
+		return "", ConsumptionReport{}, fmt.Errorf("groq json chat request: %w", err)
 	}
 	if status != http.StatusOK {
-		return "", ConsumptionReport{}, fmt.Errorf("openrouter API error %d: %s", status, string(body))
+		return "", ConsumptionReport{}, fmt.Errorf("groq API error %d: %s", status, string(body))
 	}
 
 	var result struct {
@@ -174,10 +174,10 @@ func (b *OpenRouterBrain) ChatJSON(ctx context.Context, messages []Message, sche
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", ConsumptionReport{}, fmt.Errorf("openrouter json chat decode: %w", err)
+		return "", ConsumptionReport{}, fmt.Errorf("groq json chat decode: %w", err)
 	}
 	if len(result.Choices) == 0 {
-		return "", ConsumptionReport{}, fmt.Errorf("openrouter returned empty choices")
+		return "", ConsumptionReport{}, fmt.Errorf("groq returned empty choices")
 	}
 
 	report := ConsumptionReport{

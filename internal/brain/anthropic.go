@@ -12,10 +12,10 @@ import (
 const defaultAnthropicMaxTokens = 8096
 
 type AnthropicBrain struct {
-	APIKey    string
-	Model     string
-	MaxTokens int // 0 = use defaultAnthropicMaxTokens
-	client    anthropic.Client
+	APIKey      string
+	Model       string
+	MaxTokensFn func() int // nil = use defaultAnthropicMaxTokens
+	client      anthropic.Client
 }
 
 func NewAnthropicBrain(apiKey, model string) *AnthropicBrain {
@@ -27,8 +27,10 @@ func NewAnthropicBrain(apiKey, model string) *AnthropicBrain {
 }
 
 func (b *AnthropicBrain) maxTokens() int64 {
-	if b.MaxTokens > 0 {
-		return int64(b.MaxTokens)
+	if b.MaxTokensFn != nil {
+		if n := b.MaxTokensFn(); n > 0 {
+			return int64(n)
+		}
 	}
 	return defaultAnthropicMaxTokens
 }
@@ -131,7 +133,7 @@ func (b *AnthropicBrain) ChatJSON(ctx context.Context, messages []Message, schem
 
 	params := anthropic.MessageNewParams{
 		Model:      anthropic.Model(b.Model),
-		MaxTokens:  8096,
+		MaxTokens:  b.maxTokens(),
 		Messages:   msgParams,
 		Tools:      []anthropic.ToolUnionParam{tool},
 		ToolChoice: anthropic.ToolChoiceParamOfTool(toolName),

@@ -94,6 +94,19 @@ func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessi
 	return s
 }
 
+// maxTokensFn returns a closure that reads MaxNectar from the config service on
+// every call, so brain token limits always reflect the current configuration
+// without requiring a brain rebuild after PUT /api/config.
+func (s *Server) maxTokensFn() func() int {
+	return func() int {
+		cfg, err := s.configService.Load()
+		if err != nil || cfg.MaxNectar == 0 {
+			return 0
+		}
+		return cfg.MaxNectar
+	}
+}
+
 // RequestApproval generates a unique ID, registers the pending request, and
 // broadcasts it to the UI via WebSocket.
 func (s *Server) RequestApproval(toolName string, args string) {

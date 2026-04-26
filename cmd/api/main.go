@@ -98,6 +98,14 @@ func main() {
 	repoDir := security.GetDefaultVaultDir()
 	vault, _ := security.InitVault(repoDir)
 
+	maxTokensFn := func() int {
+		c, err := cfgService.Load()
+		if err != nil || c.MaxNectar == 0 {
+			return 0
+		}
+		return c.MaxNectar
+	}
+
 	switch provider {
 	case "anthropic":
 		apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
@@ -113,9 +121,7 @@ func main() {
 			apiKey = "sk-mock-key-for-testing"
 		}
 		ab := brain.NewAnthropicBrain(apiKey, modelType)
-		if cfg != nil && cfg.MaxNectar > 0 {
-			ab.MaxTokens = cfg.MaxNectar
-		}
+		ab.MaxTokensFn = maxTokensFn
 		activeBrain = ab
 
 		// Attempt to load an OpenAI key for embeddings only.
@@ -131,6 +137,42 @@ func main() {
 			embedBrain = activeBrain
 		}
 
+	case "openrouter":
+		apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+		if apiKey == "" && vault != nil {
+			if key, err := vault.GetSecret("OPENROUTER_API_KEY"); err == nil {
+				apiKey = strings.TrimSpace(key)
+			}
+		}
+		if apiKey != "" {
+			os.Setenv("OPENROUTER_API_KEY", apiKey)
+		} else {
+			fmt.Println(i18n.T("warn_api_key_not_set"))
+			apiKey = "sk-mock-key-for-testing"
+		}
+		rb := brain.NewOpenRouterBrain(apiKey, modelType)
+		rb.MaxTokensFn = maxTokensFn
+		activeBrain = rb
+		embedBrain = rb
+
+	case "groq":
+		apiKey := strings.TrimSpace(os.Getenv("GROQ_API_KEY"))
+		if apiKey == "" && vault != nil {
+			if key, err := vault.GetSecret("GROQ_API_KEY"); err == nil {
+				apiKey = strings.TrimSpace(key)
+			}
+		}
+		if apiKey != "" {
+			os.Setenv("GROQ_API_KEY", apiKey)
+		} else {
+			fmt.Println(i18n.T("warn_api_key_not_set"))
+			apiKey = "sk-mock-key-for-testing"
+		}
+		gb := brain.NewGroqBrain(apiKey, modelType)
+		gb.MaxTokensFn = maxTokensFn
+		activeBrain = gb
+		embedBrain = gb
+
 	default:
 		apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 		if apiKey == "" && vault != nil {
@@ -145,9 +187,7 @@ func main() {
 			apiKey = "sk-mock-key-for-testing"
 		}
 		oaiBrain := brain.NewOpenAIBrain(apiKey, modelType)
-		if cfg != nil && cfg.MaxNectar > 0 {
-			oaiBrain.MaxTokens = cfg.MaxNectar
-		}
+		oaiBrain.MaxTokensFn = maxTokensFn
 		activeBrain = oaiBrain
 		embedBrain = oaiBrain
 	}
