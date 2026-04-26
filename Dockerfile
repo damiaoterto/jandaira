@@ -28,7 +28,7 @@ COPY entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 
 COPY --from=builder /app/jandaira-api /app/jandaira
-ADD ./jandaira-frontend-v${FRONTEND_VERSION}.tgz /usr/share/nginx/html/
+ADD ./jandaira-frontend-*.tgz /usr/share/nginx/html/
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 9000 8080
