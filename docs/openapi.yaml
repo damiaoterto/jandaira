@@ -1335,6 +1335,135 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/colmeias/{id}/outbound-webhooks:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+
+    get:
+      tags: [Colmeias, Webhooks]
+      summary: List outbound webhooks
+      responses:
+        '200':
+          description: Outbound webhook list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webhooks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OutboundWebhook'
+                  total:
+                    type: integer
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [Colmeias, Webhooks]
+      summary: Create an outbound webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertOutboundWebhookRequest'
+      responses:
+        '201':
+          description: Outbound webhook created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  webhook:
+                    $ref: '#/components/schemas/OutboundWebhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/outbound-webhooks/{webhookId}:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+      - name: webhookId
+        in: path
+        required: true
+        description: Outbound Webhook integer ID
+        schema:
+          type: integer
+        example: 1
+
+    get:
+      tags: [Colmeias, Webhooks]
+      summary: Get an outbound webhook
+      responses:
+        '200':
+          description: Outbound webhook record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboundWebhook'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      tags: [Colmeias, Webhooks]
+      summary: Update an outbound webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertOutboundWebhookRequest'
+      responses:
+        '200':
+          description: Outbound webhook updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  webhook:
+                    $ref: '#/components/schemas/OutboundWebhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [Colmeias, Webhooks]
+      summary: Delete an outbound webhook
+      responses:
+        '200':
+          description: Outbound webhook deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/webhooks/{slug}:
     post:
       tags: [Webhooks]
@@ -2243,6 +2372,74 @@ components:
           enum: [queen_managed, user_defined]
           description: Whether the Queen assembled agents or pre-defined agents were used.
           example: "queen_managed"
+
+    OutboundWebhook:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          description: Human-readable label for the outbound webhook.
+          example: "Slack Notification"
+        url:
+          type: string
+          description: Destination endpoint URL.
+          example: "https://hooks.slack.com/services/T000/B000/XXX"
+        method:
+          type: string
+          description: HTTP method.
+          example: "POST"
+        headers:
+          type: string
+          description: Custom headers in JSON format.
+          example: "{\"Content-Type\": \"application/json\"}"
+        body_template:
+          type: string
+          description: Go `text/template` for the payload.
+          example: "{\"text\": \"Hive {{.colmeia_id}} completed mission: {{.goal}}. Result: {{.result}}\"}"
+        secret:
+          type: string
+          description: Optional HMAC-SHA256 secret.
+        active:
+          type: boolean
+          example: true
+        colmeia_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UpsertOutboundWebhookRequest:
+      type: object
+      required: [name, url, body_template]
+      properties:
+        name:
+          type: string
+          example: "Slack Notification"
+        url:
+          type: string
+          example: "https://hooks.slack.com/services/T000/B000/XXX"
+        method:
+          type: string
+          example: "POST"
+        headers:
+          type: string
+          example: "{\"Content-Type\": \"application/json\"}"
+        body_template:
+          type: string
+          example: "{\"text\": \"Hive {{.colmeia_id}} completed mission: {{.goal}}. Result: {{.result}}\"}"
+        secret:
+          type: string
+          example: "my-secret-key"
+        active:
+          type: boolean
+          default: true
 
     MessageResponse:
       type: object

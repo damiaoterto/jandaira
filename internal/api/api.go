@@ -52,7 +52,8 @@ type Server struct {
 	colmeiaService  service.ColmeiaService
 	skillService    service.SkillService
 	documentService service.DocumentService
-	webhookService  service.WebhookService
+	webhookService         service.WebhookService
+	outboundWebhookService service.OutboundWebhookService
 
 	// WebSocket client management
 	clients   map[*websocket.Conn]bool
@@ -63,18 +64,19 @@ type Server struct {
 	pendingApprovalsMu sync.Mutex
 }
 
-func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService, skillSvc service.SkillService, docSvc service.DocumentService, webhookSvc service.WebhookService) *Server {
+func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService, skillSvc service.SkillService, docSvc service.DocumentService, webhookSvc service.WebhookService, outboundWebhookSvc service.OutboundWebhookService) *Server {
 	s := &Server{
-		Queen:            q,
-		Port:             port,
-		configService:    cfgService,
-		sessionService:   sessionSvc,
-		colmeiaService:   colmeiaSvc,
-		skillService:     skillSvc,
-		documentService:  docSvc,
-		webhookService:   webhookSvc,
-		clients:          make(map[*websocket.Conn]bool),
-		pendingApprovals: make(map[string]bool),
+		Queen:                  q,
+		Port:                   port,
+		configService:          cfgService,
+		sessionService:         sessionSvc,
+		colmeiaService:         colmeiaSvc,
+		skillService:           skillSvc,
+		documentService:        docSvc,
+		webhookService:         webhookSvc,
+		outboundWebhookService: outboundWebhookSvc,
+		clients:                make(map[*websocket.Conn]bool),
+		pendingApprovals:       make(map[string]bool),
 	}
 
 	q.LogFunc = func(msg string) {
@@ -223,6 +225,16 @@ func (s *Server) Start() error {
 			colmeias.POST("/:id/documents", s.handleColmeiaUploadDocument)
 			colmeias.GET("/:id/documents", s.handleListColmeiaDocuments)
 			colmeias.DELETE("/:id/documents/:docId", s.handleDeleteDocument)
+
+			// Outbound webhooks (envio de resultados para sistemas externos)
+			outboundWebhooks := colmeias.Group("/:id/outbound-webhooks")
+			{
+				outboundWebhooks.GET("", s.handleListOutboundWebhooks)
+				outboundWebhooks.POST("", s.handleCreateOutboundWebhook)
+				outboundWebhooks.GET("/:webhookId", s.handleGetOutboundWebhook)
+				outboundWebhooks.PUT("/:webhookId", s.handleUpdateOutboundWebhook)
+				outboundWebhooks.DELETE("/:webhookId", s.handleDeleteOutboundWebhook)
+			}
 
 			// Skills associadas à colmeia
 			colmeias.GET("/:id/skills", s.handleListColmeiaSkills)

@@ -375,6 +375,22 @@ X-Hub-Signature-256: sha256=<body 的十六进制 HMAC-SHA256>
 
 与 GitHub Webhooks 标准兼容。签名无效的 payload 将收到 `401 Unauthorized`。
 
+### Outbound Webhooks (出站 Webhooks)
+
+Jandaira 还支持 **Outbound Webhooks**，允许蜂巢在任务完成后自动将处理结果发送到外部系统（如 Discord、Slack 等）。可以通过 `BodyTemplate` 自定义请求格式。
+
+模板内置了发送结构化 JSON payload 所需的基本函数（过滤器）：
+- `json`：安全地转义 JSON 中的文本（如换行符、引号）。
+- `truncate <长度>`：将字符串截断为最大长度，防止在 Discord 等 API 中出现错误（2000 个字符限制）。
+- `normalize`：清理 AI 文本，删除编排元数据、内部日志和内存转储，仅保留最后一个代理的最终报告。
+
+**出站 Payload 示例：**
+```json
+{
+  "content": {{.result | normalize | truncate 1900 | json}}
+}
+```
+
 ### 完整示例
 
 ```bash

@@ -13,6 +13,47 @@ External System  →  POST /api/webhooks/{slug}  →  Webhook Engine  →  Queen
 
 ---
 
+## Outbound Webhooks
+
+Jandaira also supports Outbound Webhooks, which allow a `Colmeia` to automatically send the result of a dispatch to external systems once a workflow completes. 
+
+### Configuration
+An Outbound Webhook consists of:
+- `URL`: The destination endpoint.
+- `Method`: HTTP method (usually POST).
+- `Headers`: Custom headers in JSON format.
+- `BodyTemplate`: A Go `text/template` used to format the payload. The template context (`.`) exposes:
+  - `result`: The final message/result from the swarm.
+  - `goal`: The original dispatch goal.
+  - `colmeia_id`: The ID of the hive.
+  - `historico_id`: The ID of the dispatch history record.
+- `Secret`: An optional HMAC-SHA256 secret. If set, the engine will compute an `X-Hub-Signature-256` header on the outgoing request.
+
+> [!TIP]
+> The template engine provides helpful functions for formatting your payloads:
+> - `json`: Safely escapes strings for JSON payloads. Highly recommended for the `result` field.
+> - `truncate <length>`: Truncates a string to a maximum length (adding `...`). Useful for APIs with character limits (like Discord's 2000 character limit).
+> - `normalize`: Cleans up the `.result` string by removing internal agent logs, semantic memory dumps, and previous chat history, leaving only the final AI response.
+
+### Example Template
+```json
+{
+  "mission": "{{.goal | normalize | json}}",
+  "outcome": {{.result | normalize | truncate 1900 | json}},
+  "hive": "{{.colmeia_id}}"
+}
+```
+
+### API Endpoints
+The Outbound Webhooks are managed per colmeia via the API:
+- `GET /api/colmeias/:id/outbound-webhooks`
+- `POST /api/colmeias/:id/outbound-webhooks`
+- `GET /api/colmeias/:id/outbound-webhooks/:webhookId`
+- `PUT /api/colmeias/:id/outbound-webhooks/:webhookId`
+- `DELETE /api/colmeias/:id/outbound-webhooks/:webhookId`
+
+---
+
 ## Architecture
 
 ### Layers

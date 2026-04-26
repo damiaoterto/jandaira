@@ -161,6 +161,13 @@ func (s *Server) handleWebhookTrigger(c *gin.Context) {
 			select {
 			case result := <-resultChan:
 				_ = s.colmeiaService.CompleteHistorico(historico.ID, result)
+				s.outboundWebhookService.Enqueue(colmeia.ID, map[string]interface{}{
+					"result":       result,
+					"goal":         goal,
+					"colmeia_id":   colmeia.ID,
+					"historico_id": historico.ID,
+					"payload":      payload,
+				})
 				s.Broadcast(WsMessage{Type: "result", Message: result})
 			case dispatchErr := <-errChan:
 				_ = s.colmeiaService.FailHistorico(historico.ID)
@@ -202,6 +209,13 @@ func (s *Server) handleWebhookTrigger(c *gin.Context) {
 		select {
 		case result := <-resultChan:
 			_ = s.colmeiaService.CompleteHistorico(historico.ID, result)
+			s.outboundWebhookService.Enqueue(colmeia.ID, map[string]interface{}{
+				"result":       result,
+				"goal":         goal,
+				"colmeia_id":   colmeia.ID,
+				"historico_id": historico.ID,
+				"payload":      payload,
+			})
 			s.Broadcast(WsMessage{Type: "result", Message: result})
 		case dispatchErr := <-errChan:
 			_ = s.colmeiaService.FailHistorico(historico.ID)

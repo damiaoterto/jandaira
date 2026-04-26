@@ -322,6 +322,22 @@ X-Hub-Signature-256: sha256=<hex-encoded-HMAC-SHA256-del-body>
 
 Compatible con el estándar GitHub Webhooks. Payloads con firma inválida reciben `401 Unauthorized`.
 
+### Outbound Webhooks (Webhooks de Salida)
+
+Jandaira también soporta **Outbound Webhooks**, permitiendo que la colmena envíe automáticamente el resultado de su procesamiento a sistemas externos (Discord, Slack, etc.) tan pronto como la misión se complete. El formato de la petición es personalizable a través de `BodyTemplate`.
+
+El template tiene funciones (filtros) integradas esenciales para enviar payloads JSON estructurados:
+- `json`: Escapa el texto con seguridad (saltos de línea, comillas) dentro del JSON.
+- `truncate <límite>`: Recorta el tamaño máximo de la cadena, evitando errores en APIs como Discord (límite de 2000 caracteres).
+- `normalize`: Limpia el texto de la IA, eliminando metadatos de orquestación, logs internos y volcados de memoria, entregando solo el informe final del último agente.
+
+**Ejemplo de payload de salida:**
+```json
+{
+  "content": {{.result | normalize | truncate 1900 | json}}
+}
+```
+
 ### Ejemplo completo
 
 ```bash
