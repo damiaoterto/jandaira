@@ -24,6 +24,7 @@
 - **Соты (`Honeycomb`)** — двухуровневая система персистентной памяти: `ShortTermMemory` хранит актуальный контекст в RAM с автоматическим TTL; встроенный `VectorEngine` (BadgerDB + HNSW) архивирует консолидированные знания в виде долгосрочных векторов — без внешних зависимостей.
 - **Граф знаний (`KnowledgeGraph`)** — карта связей между агентами, темами и инструментами: Королева обращается к нему перед каждой миссией, чтобы переиспользовать профили специалистов, уже успешно справлявшихся с похожими задачами.
 - **Пасечник (Beekeeper)** — человек в контуре: он может одобрить или заблокировать любое действие ИИ до его выполнения.
+- **Вебхуки (Webhooks)** — внешние HTTP-триггеры, позволяющие системам CI/CD, GitHub, Prometheus и подобным запускать рои агентов простым вызовом URL. Поле **GoalTemplate** использует встроенный `text/template` Go для превращения входящего JSON-payload в цель, которую Королева обработает — без перекомпиляции бинарника.
 
 ---
 
@@ -331,6 +332,78 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 
 ---
 
+## 🪝 Webhook Engine
+
+**Webhook Engine** позволяет внешним системам активировать ульи по HTTP без дополнительной аутентификации. Каждый вебхук имеет уникальный `slug` в URL, **GoalTemplate** на основе встроенного `text/template` Go и опциональный `secret` для валидации HMAC-SHA256.
+
+### Поток выполнения
+
+```
+Внешняя система (GitHub, Prometheus, Slack, CI/CD…)
+     │  POST /api/webhooks/monitor-deploy
+     │  Body: {"project_name": "Jandaira", "env": "prod"}
+     ▼
+┌─────────────────────────────────────────────┐
+│              Webhook Engine                  │
+│                                             │
+│  1. Поиск вебхука по slug                   │
+│  2. Валидация HMAC-SHA256 (если secret задан)│
+│  3. Рендер GoalTemplate с payload:          │
+│     "Проанализируй деплой Jandaira в prod"  │
+│  4. Вызов Queen.DispatchWorkflow            │
+└─────────────────────────────────────────────┘
+     │
+     ▼
+Королева → AssembleSwarm / BuildSpecialists → Результат через WebSocket
+```
+
+### GoalTemplate
+
+Использует встроенный `text/template` Go. Любое поле JSON-payload доступно через `{{.поле}}`:
+
+```
+"Проанализируй деплой проекта {{.project_name}} в среде {{.env}}"
+"Алерт: {{.alertname}} — инстанс {{.instance}} ({{.severity}})"
+"PR #{{.number}} в {{.repository.name}}: {{.title}}"
+```
+
+### Валидация HMAC-SHA256
+
+Если `secret` задан, вызывающая сторона должна передать заголовок:
+
+```
+X-Hub-Signature-256: sha256=<hex-encoded-HMAC-SHA256-тела>
+```
+
+Совместимо со стандартом GitHub Webhooks. Payload с невалидной подписью получает `401 Unauthorized`.
+
+### Полный пример
+
+```bash
+# Создать вебхук
+curl -X POST http://localhost:8080/api/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Monitor Deploy",
+    "slug": "monitor-deploy",
+    "colmeia_id": "<id-улья>",
+    "secret": "мой-секрет",
+    "goal_template": "Проанализируй деплой {{.project_name}} в среде {{.env}}",
+    "active": true
+  }'
+
+# Запустить (с HMAC-подписью)
+BODY='{"project_name":"Jandaira","env":"prod"}'
+SIG="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "мой-секрет" | awk '{print $2}')"
+
+curl -X POST http://localhost:8080/api/webhooks/monitor-deploy \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature-256: $SIG" \
+  -d "$BODY"
+```
+
+---
+
 ## 🌐 Справочник API
 
 Запустите HTTP-сервер командой `./jandaira-api --port 8080`. Доступны следующие маршруты:
@@ -376,6 +449,17 @@ queen.RegisterSwarm("my-swarm", swarm.Policy{
 | `GET` | `/api/colmeias/:id/agentes/:agentId` | Получить агента по ID |
 | `PUT` | `/api/colmeias/:id/agentes/:agentId` | Редактировать агента (промпт, инструменты) |
 | `DELETE` | `/api/colmeias/:id/agentes/:agentId` | Удалить агента из улья |
+
+#### Вебхуки
+
+| Метод    | Маршрут                 | Описание                                                    |
+| -------- | ----------------------- | ----------------------------------------------------------- |
+| `POST`   | `/api/webhooks/:slug`   | **Публичный** — запускает workflow связанного улья          |
+| `GET`    | `/api/webhooks`         | Список всех вебхуков                                        |
+| `POST`   | `/api/webhooks`         | Создать вебхук                                              |
+| `GET`    | `/api/webhooks/:id`     | Получить вебхук по ID                                       |
+| `PUT`    | `/api/webhooks/:id`     | Обновить вебхук                                             |
+| `DELETE` | `/api/webhooks/:id`     | Удалить вебхук                                              |
 
 **Пример — создание улья с агентами, определёнными пользователем:**
 

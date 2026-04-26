@@ -36,6 +36,17 @@ tags:
       Reusable capability units. A skill encapsulates instructions and allowed tools for a domain.
       Skills can be attached to a hive (used by the Queen during swarm assembly) or to individual
       pre-defined agents (merged into their system prompt and allowed tools at dispatch time).
+  - name: Webhooks
+    description: |
+      External HTTP triggers that dispatch goals to a hive without additional authentication.
+      Each webhook has a unique slug (used in the URL), a GoalTemplate rendered with Go's
+      `text/template` against the incoming JSON payload, and an optional HMAC-SHA256 secret.
+
+      **Public trigger:** `POST /api/webhooks/{slug}` is exempt from the setup middleware and
+      accessible by any external system (GitHub, Prometheus, Slack, CI/CD pipelines, etc.).
+
+      **Management routes** (`GET/POST/PUT/DELETE /api/webhooks`) require the hive to be
+      configured first and follow the same 428 precondition as all other protected routes.
   - name: Documents
     description: |
       Upload and index documents into vector memory (Qdrant).
@@ -1324,6 +1335,288 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/webhooks/{slug}:
+    post:
+      tags: [Webhooks]
+      summary: Trigger a webhook (public)
+      description: |
+        Public endpoint called by external systems (GitHub, Prometheus, CI/CD, etc.).
+        **Does not require prior hive configuration** — the route is exempt from the
+        setup middleware so external callers always receive a meaningful HTTP response.
+
+        **Processing flow:**
+        1. Locate the webhook record by `slug`.
+        2. If the webhook has a `secret`, validate the `X-Hub-Signature-256` header
+           (format: `sha256=<hex-encoded-HMAC-SHA256-of-body>`).
+        3. Parse the request body as `map[string]interface{}`.
+        4. Render `goal_template` using Go's `text/template` with the payload as the
+           dot context (`.`). Nested keys like `{{.repository.name}}` work as long as
+           the JSON value is an object.
+        5. Enrich the rendered goal with the hive's DB history and skills context.
+        6. Create a `HistoricoDespacho` record for tracking.
+        7. Ensure the hive's swarm group is registered in the Queen.
+        8. Assemble the pipeline (`queen_managed=true` → `AssembleSwarm`;
+           `queen_managed=false` → `BuildSpecialists`) and call `DispatchWorkflow`
+           asynchronously. Results are broadcast via WebSocket.
+      parameters:
+        - $ref: '#/components/parameters/WebhookSlug'
+      requestBody:
+        required: false
+        description: |
+          Arbitrary JSON payload. Every top-level key is available as `{{.key}}` inside
+          the webhook's `goal_template`. Nested objects are accessible via dot notation:
+          `{{.repository.name}}`. An empty body is accepted (empty map is used).
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+            examples:
+              deploy_event:
+                summary: CI/CD deploy notification
+                value:
+                  project_name: "Jandaira"
+                  env: "prod"
+                  version: "v1.4.2"
+              github_push:
+                summary: GitHub push event (subset)
+                value:
+                  ref: "refs/heads/main"
+                  repository:
+                    name: "jandaira"
+                    full_name: "damiaoterto/jandaira"
+                  pusher:
+                    name: "damiaoterto"
+              prometheus_alert:
+                summary: Prometheus AlertManager
+                value:
+                  alertname: "HighCPUUsage"
+                  instance: "app-server-01"
+                  severity: "critical"
+      responses:
+        '202':
+          description: Webhook accepted; mission dispatched asynchronously
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookTriggerResponse'
+              examples:
+                queen_managed:
+                  summary: Queen-managed hive
+                  value:
+                    message: "Webhook received. Mission dispatched. Follow progress via WebSocket."
+                    webhook_slug: "monitor-deploy"
+                    colmeia_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    historico_id: "f0e1d2c3-b4a5-6789-cdef-012345678901"
+                    agents: 3
+                    mode: "queen_managed"
+                user_defined:
+                  summary: User-defined agents
+                  value:
+                    message: "Webhook received. Mission dispatched. Follow progress via WebSocket."
+                    webhook_slug: "monitor-deploy"
+                    colmeia_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    historico_id: "f0e1d2c3-b4a5-6789-cdef-012345678901"
+                    agents: 2
+                    mode: "user_defined"
+        '400':
+          description: Request body is not valid JSON or hive has no agents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_json:
+                  value:
+                    error: "Request body must be valid JSON."
+                no_agents:
+                  value:
+                    error: "Colmeia has no defined agents. Add agents or enable queen_managed."
+        '401':
+          description: HMAC-SHA256 signature is missing or does not match the secret
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Invalid webhook signature."
+        '404':
+          description: No webhook with the given slug exists, or the linked hive was deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                webhook_not_found:
+                  value:
+                    error: "Webhook not found."
+                hive_not_found:
+                  value:
+                    error: "Colmeia linked to this webhook was not found."
+        '410':
+          description: Webhook exists but is inactive (`active: false`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Webhook is inactive."
+        '422':
+          description: GoalTemplate rendering failed (invalid template or missing key)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Goal template error: template: goal:1:12: executing \"goal\" at <.missing_key>: map has no entry for key \"missing_key\""
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List all webhooks
+      description: Returns all configured webhooks ordered by creation date (newest first). Requires hive configuration.
+      responses:
+        '200':
+          description: Webhook list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Webhook'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [Webhooks]
+      summary: Create a webhook
+      description: |
+        Creates a new webhook. The `slug` must be unique across all webhooks — it becomes
+        the public URL path segment (`/api/webhooks/{slug}`).
+
+        The `goal_template` uses Go's `text/template` syntax. Any key from the incoming
+        JSON payload is accessible as `{{.key}}`. Nested objects use dot notation:
+        `{{.repository.name}}`.
+
+        If `secret` is provided, callers must include a valid HMAC-SHA256 signature in
+        the `X-Hub-Signature-256` header (GitHub-compatible format).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+            examples:
+              deploy_monitor:
+                summary: CI/CD deploy monitor
+                value:
+                  name: "Monitor Deploy"
+                  slug: "monitor-deploy"
+                  colmeia_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  secret: "my-hmac-secret"
+                  goal_template: "Analyse the deploy of project {{.project_name}} in environment {{.env}} (version {{.version}})"
+                  active: true
+              github_pr:
+                summary: GitHub PR review
+                value:
+                  name: "PR Review"
+                  slug: "github-pr-review"
+                  colmeia_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  secret: "github-webhook-secret"
+                  goal_template: "Review PR #{{.number}} in {{.repository.name}}: {{.title}}. Author: {{.user.login}}"
+                  active: true
+              prometheus_alert:
+                summary: Prometheus alert handler (no secret)
+                value:
+                  name: "Prometheus Alerts"
+                  slug: "prometheus-alerts"
+                  colmeia_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  goal_template: "Investigate alert {{.alertname}} on instance {{.instance}}. Severity: {{.severity}}"
+                  active: true
+      responses:
+        '201':
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/webhooks/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WebhookID'
+
+    get:
+      tags: [Webhooks]
+      summary: Get a webhook
+      responses:
+        '200':
+          description: Webhook record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      tags: [Webhooks]
+      summary: Update a webhook
+      description: |
+        Replaces all mutable fields of the webhook. The `slug` can be changed — note
+        that any external system already pointing to the old slug URL will break.
+        Changes to `goal_template` take effect on the next incoming trigger.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '200':
+          description: Webhook updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [Webhooks]
+      summary: Delete a webhook
+      description: Permanently removes the webhook. In-flight triggers are not affected.
+      responses:
+        '204':
+          description: Webhook deleted (no content)
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /ws:
     get:
       tags: [WebSocket]
@@ -1841,6 +2134,116 @@ components:
             type: string
           example: ["web_search"]
 
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          description: Human-readable label for the webhook.
+          example: "Monitor Deploy"
+        slug:
+          type: string
+          description: |
+            URL-safe unique identifier used in the trigger URL:
+            `POST /api/webhooks/{slug}`.
+          example: "monitor-deploy"
+        colmeia_id:
+          type: string
+          format: uuid
+          description: ID of the hive this webhook dispatches to.
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        secret:
+          type: string
+          description: |
+            Optional HMAC-SHA256 secret. When set, every incoming trigger must include
+            a valid `X-Hub-Signature-256: sha256=<hex>` header.
+            Omitted from responses for security (stored but never returned).
+          example: ""
+        active:
+          type: boolean
+          description: |
+            When `false`, the trigger endpoint returns `410 Gone` without processing.
+            Use this to temporarily disable a webhook without deleting it.
+          example: true
+        goal_template:
+          type: string
+          description: |
+            Go `text/template` string rendered against the incoming JSON payload.
+            The payload is passed as the template dot (`.`), so any top-level key is
+            accessible as `{{.key}}`. Nested objects use dot notation: `{{.repository.name}}`.
+          example: "Analyse the deploy of project {{.project_name}} in environment {{.env}}"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateWebhookRequest:
+      type: object
+      required: [name, slug, colmeia_id, goal_template]
+      properties:
+        name:
+          type: string
+          example: "Monitor Deploy"
+        slug:
+          type: string
+          description: Must be unique. Used as the URL path segment for the public trigger.
+          example: "monitor-deploy"
+        colmeia_id:
+          type: string
+          format: uuid
+          description: ID of the target hive.
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        secret:
+          type: string
+          description: |
+            Optional HMAC-SHA256 signing secret. Leave empty to disable signature
+            validation. When set, the caller must provide
+            `X-Hub-Signature-256: sha256=<hex-encoded-HMAC-SHA256-of-body>`.
+          example: "my-hmac-secret"
+        active:
+          type: boolean
+          description: Defaults to `true`. Set to `false` to disable without deleting.
+          default: true
+        goal_template:
+          type: string
+          description: |
+            Go `text/template` rendered against the incoming JSON payload.
+            Use `{{.field}}` for top-level keys and `{{.nested.key}}` for nested objects.
+          example: "Analyse the deploy of {{.project_name}} in {{.env}}"
+
+    WebhookTriggerResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Webhook received. Mission dispatched. Follow progress via WebSocket."
+        webhook_slug:
+          type: string
+          example: "monitor-deploy"
+        colmeia_id:
+          type: string
+          format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        historico_id:
+          type: string
+          format: uuid
+          description: ID of the HistoricoDespacho record created for this trigger.
+          example: "f0e1d2c3-b4a5-6789-cdef-012345678901"
+        agents:
+          type: integer
+          description: Number of agents in the assembled pipeline.
+          example: 3
+        mode:
+          type: string
+          enum: [queen_managed, user_defined]
+          description: Whether the Queen assembled agents or pre-defined agents were used.
+          example: "queen_managed"
+
     MessageResponse:
       type: object
       properties:
@@ -1901,6 +2304,24 @@ components:
         type: string
         format: uuid
       example: "d1e2f3a4-b5c6-7890-abcd-ef1234567890"
+
+    WebhookID:
+      name: id
+      in: path
+      required: true
+      description: Webhook integer ID
+      schema:
+        type: integer
+      example: 1
+
+    WebhookSlug:
+      name: slug
+      in: path
+      required: true
+      description: Webhook slug (URL-safe unique identifier)
+      schema:
+        type: string
+      example: "monitor-deploy"
 
   responses:
     BadRequest:

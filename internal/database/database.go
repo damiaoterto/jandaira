@@ -38,6 +38,7 @@ func Open(dbPath string) (*gorm.DB, error) {
 		&model.AgenteColmeia{},
 		&model.HistoricoDespacho{},
 		&model.Document{},
+		&model.Webhook{},
 	); err != nil {
 		return nil, err
 	}

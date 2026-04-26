@@ -52,6 +52,7 @@ type Server struct {
 	colmeiaService  service.ColmeiaService
 	skillService    service.SkillService
 	documentService service.DocumentService
+	webhookService  service.WebhookService
 
 	// WebSocket client management
 	clients   map[*websocket.Conn]bool
@@ -62,7 +63,7 @@ type Server struct {
 	pendingApprovalsMu sync.Mutex
 }
 
-func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService, skillSvc service.SkillService, docSvc service.DocumentService) *Server {
+func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService, skillSvc service.SkillService, docSvc service.DocumentService, webhookSvc service.WebhookService) *Server {
 	s := &Server{
 		Queen:            q,
 		Port:             port,
@@ -71,6 +72,7 @@ func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessi
 		colmeiaService:   colmeiaSvc,
 		skillService:     skillSvc,
 		documentService:  docSvc,
+		webhookService:   webhookSvc,
 		clients:          make(map[*websocket.Conn]bool),
 		pendingApprovals: make(map[string]bool),
 	}
@@ -159,6 +161,11 @@ func (s *Server) Start() error {
 
 	r.GET("/ws", s.handleWebSocket)
 
+	// Public webhook trigger: accessible by external systems without auth headers.
+	// The route lives outside setupMiddleware; signature validation is handled
+	// inside handleWebhookTrigger when the webhook has a Secret configured.
+	r.POST("/api/webhooks/:slug", s.handleWebhookTrigger)
+
 	api := r.Group("/api")
 	api.Use(s.setupMiddleware())
 	{
@@ -181,6 +188,16 @@ func (s *Server) Start() error {
 			sessions.POST("/:id/documents", s.handleUploadDocument)
 			sessions.GET("/:id/documents", s.handleListSessionDocuments)
 			sessions.DELETE("/:id/documents/:docId", s.handleDeleteDocument)
+		}
+
+		// Webhook management routes (CRUD; trigger is the public POST /api/webhooks/:slug above)
+		webhooks := api.Group("/webhooks")
+		{
+			webhooks.GET("", s.handleListWebhooks)
+			webhooks.POST("", s.handleCreateWebhook)
+			webhooks.GET("/:id", s.handleGetWebhook)
+			webhooks.PUT("/:id", s.handleUpdateWebhook)
+			webhooks.DELETE("/:id", s.handleDeleteWebhook)
 		}
 
 		// Skill routes (catálogo global de skills reutilizáveis)

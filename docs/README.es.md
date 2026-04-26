@@ -24,6 +24,7 @@ Este es exactamente el modelo de arquitectura que el proyecto implementa:
 - El **Panal (`Honeycomb`)** es el sistema de memoria persistente de dos niveles: `ShortTermMemory` mantiene el contexto reciente en RAM con expiración automática por TTL; el `VectorEngine` integrado (BadgerDB + HNSW) archiva el conocimiento consolidado a largo plazo como vectores — sin dependencias externas.
 - El **Grafo de Conocimiento (`KnowledgeGraph`)** mapea relaciones entre agentes, temas y herramientas — la Reina lo consulta antes de cada misión para reutilizar perfiles de especialistas que ya tuvieron éxito en objetivos similares.
 - El **Apicultor** es el humano en el bucle: aprueba o bloquea cualquier acción antes de que la IA la ejecute.
+- Los **Webhooks** son disparadores HTTP externos que permiten a sistemas de CI/CD, GitHub, Prometheus y similares lanzar enjambres de agentes simplemente llamando a una URL. El **GoalTemplate** usa `text/template` nativo de Go para transformar el payload JSON recibido en el objetivo que la Reina procesará — sin recompilar el binario.
 
 ---
 
@@ -276,6 +277,78 @@ Además, las claves y accesos son gestionados localmente usando el paquete `inte
 
 ---
 
+## 🪝 Webhook Engine
+
+El **Webhook Engine** permite que sistemas externos activen colmenas vía HTTP sin autenticación adicional. Cada webhook tiene un `slug` único en la URL, un `GoalTemplate` basado en `text/template` de Go y, opcionalmente, un `secret` para validación HMAC-SHA256.
+
+### Flujo
+
+```
+Sistema externo (GitHub, Prometheus, Slack, CI/CD…)
+     │  POST /api/webhooks/monitor-deploy
+     │  Body: {"project_name": "Jandaira", "env": "prod"}
+     ▼
+┌─────────────────────────────────────────────┐
+│              Webhook Engine                  │
+│                                             │
+│  1. Localiza webhook por slug               │
+│  2. Valida HMAC-SHA256 (si secret definido) │
+│  3. Renderiza GoalTemplate con el payload:  │
+│     "Analiza el deploy de Jandaira en prod" │
+│  4. Llama a Queen.DispatchWorkflow          │
+└─────────────────────────────────────────────┘
+     │
+     ▼
+Reina → AssembleSwarm / BuildSpecialists → Resultado vía WebSocket
+```
+
+### GoalTemplate
+
+Usa `text/template` nativo de Go. Cualquier campo del payload JSON es referenciable con `{{.campo}}`:
+
+```
+"Analiza el deploy del proyecto {{.project_name}} en el entorno {{.env}}"
+"Alerta: {{.alertname}} — instancia {{.instance}} ({{.severity}})"
+"PR #{{.number}} en {{.repository.name}}: {{.title}}"
+```
+
+### Validación HMAC-SHA256
+
+Si `secret` está configurado, el llamador debe incluir el header:
+
+```
+X-Hub-Signature-256: sha256=<hex-encoded-HMAC-SHA256-del-body>
+```
+
+Compatible con el estándar GitHub Webhooks. Payloads con firma inválida reciben `401 Unauthorized`.
+
+### Ejemplo completo
+
+```bash
+# Crear webhook
+curl -X POST http://localhost:8080/api/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Monitor Deploy",
+    "slug": "monitor-deploy",
+    "colmeia_id": "<id-de-colmena>",
+    "secret": "mi-secreto",
+    "goal_template": "Analiza el deploy del proyecto {{.project_name}} en el entorno {{.env}}",
+    "active": true
+  }'
+
+# Disparar (con firma HMAC)
+BODY='{"project_name":"Jandaira","env":"prod"}'
+SIG="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "mi-secreto" | awk '{print $2}')"
+
+curl -X POST http://localhost:8080/api/webhooks/monitor-deploy \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature-256: $SIG" \
+  -d "$BODY"
+```
+
+---
+
 ## 🌐 API Reference
 
 ### Rutas REST
@@ -319,6 +392,17 @@ Las colmenas son entidades persistentes y con nombre. A diferencia de las sesion
 | `GET` | `/api/colmeias/:id/agentes/:agentId` | Obtiene agente por ID |
 | `PUT` | `/api/colmeias/:id/agentes/:agentId` | Edita nombre, prompt y herramientas |
 | `DELETE` | `/api/colmeias/:id/agentes/:agentId` | Elimina agente de la colmena |
+
+#### Webhooks
+
+| Método   | Ruta                    | Descripción                                               |
+| -------- | ----------------------- | --------------------------------------------------------- |
+| `POST`   | `/api/webhooks/:slug`   | **Público** — activa el workflow de la colmena asociada   |
+| `GET`    | `/api/webhooks`         | Lista todos los webhooks                                  |
+| `POST`   | `/api/webhooks`         | Crea webhook                                              |
+| `GET`    | `/api/webhooks/:id`     | Obtiene webhook por ID                                    |
+| `PUT`    | `/api/webhooks/:id`     | Actualiza webhook                                         |
+| `DELETE` | `/api/webhooks/:id`     | Elimina webhook                                           |
 
 **Ejemplo — crear colmena con agentes definidos por el usuario:**
 
