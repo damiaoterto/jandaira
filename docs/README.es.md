@@ -218,6 +218,17 @@ go build -o jandaira-api ./cmd/api/
 go run ./cmd/api/main.go --port 8080
 ```
 
+#### Opción 3 — Docker (Fullstack)
+
+Para ejecutar el proyecto completo (Backend y Frontend) vía Docker, simplemente descarga y ejecuta la imagen oficial:
+
+```bash
+docker pull ghcr.io/damiaoterto/jandaira:latest
+docker run -d -p 8080:8080/tcp -p 9000:9000/tcp ghcr.io/damiaoterto/jandaira:latest
+```
+
+El panel Frontend estará disponible en `http://localhost:9000` y la API en `http://localhost:8080`.
+
 ### Ejecutar la colmena
 
 ```bash

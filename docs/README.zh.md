@@ -249,6 +249,17 @@ go build -o jandaira-api ./cmd/api/
 go run ./cmd/api/main.go --port 8080
 ```
 
+#### 方式 3 — Docker (全栈)
+
+若要通过 Docker 运行完整的项目（后端和前端），只需拉取并运行官方镜像：
+
+```bash
+docker pull ghcr.io/damiaoterto/jandaira:latest
+docker run -d -p 8080:8080/tcp -p 9000:9000/tcp ghcr.io/damiaoterto/jandaira:latest
+```
+
+前端面板将在 `http://localhost:9000` 可用，而 API 将在 `http://localhost:8080` 可用。
+
 ### 运行蜂巢
 
 ```bash
