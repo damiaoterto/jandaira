@@ -303,7 +303,7 @@ The dashboard will be at `http://localhost:9000` and the API at `http://localhos
 Download the installer from the [releases page](https://github.com/damiaoterto/jandaira/releases/latest) and run it as Administrator in PowerShell:
 
 ```powershell
-.\install-windows.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
 ### Run the hive

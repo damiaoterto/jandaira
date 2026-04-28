@@ -275,7 +275,7 @@ curl -fsSL https://github.com/damiaoterto/jandaira/releases/latest/download/inst
 从 [Releases 页面](https://github.com/damiaoterto/jandaira/releases/latest) 下载安装程序，并以管理员身份在 PowerShell 中运行：
 
 ```powershell
-.\install-windows.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
 ### 运行蜂巢

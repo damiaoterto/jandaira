@@ -244,7 +244,7 @@ El panel estará en `http://localhost:9000` y la API en `http://localhost:8080`.
 Descarga el instalador desde la [página de releases](https://github.com/damiaoterto/jandaira/releases/latest) y ejecútalo como Administrador en PowerShell:
 
 ```powershell
-.\install-windows.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
 ### Ejecutar la colmena

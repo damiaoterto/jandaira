@@ -277,7 +277,7 @@ curl -fsSL https://github.com/damiaoterto/jandaira/releases/latest/download/inst
 Скачайте установщик со [страницы релизов](https://github.com/damiaoterto/jandaira/releases/latest) и запустите его от имени Администратора в PowerShell:
 
 ```powershell
-.\install-windows.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
 ### Запуск улья

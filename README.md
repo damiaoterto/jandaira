@@ -307,7 +307,7 @@ O painel ficará em `http://localhost:9000` e a API em `http://localhost:8080`.
 Baixe o instalador da [página de releases](https://github.com/damiaoterto/jandaira/releases/latest) e execute como Administrador no PowerShell:
 
 ```powershell
-.\install-windows.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
 ### Executar a colmeia
