@@ -260,6 +260,24 @@ docker run -d -p 8080:8080/tcp -p 9000:9000/tcp ghcr.io/damiaoterto/jandaira:lat
 
 前端面板将在 `http://localhost:9000` 可用，而 API 将在 `http://localhost:8080` 可用。
 
+#### 方式 4 — 自动安装脚本（Linux/macOS）
+
+自动检测操作系统，下载二进制文件和前端，并注册开机自启服务：
+
+```bash
+curl -fsSL https://github.com/damiaoterto/jandaira/releases/latest/download/install.sh | sudo bash
+```
+
+面板将在 `http://localhost:9000` 可用，API 在 `http://localhost:8080` 可用。
+
+#### 方式 5 — Windows
+
+从 [Releases 页面](https://github.com/damiaoterto/jandaira/releases/latest) 下载安装程序，并以管理员身份在 PowerShell 中运行：
+
+```powershell
+.\install-windows.ps1
+```
+
 ### 运行蜂巢
 
 ```bash

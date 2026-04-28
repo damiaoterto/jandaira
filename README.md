@@ -292,6 +292,24 @@ docker run -d -p 8080:8080/tcp -p 9000:9000/tcp ghcr.io/damiaoterto/jandaira:lat
 
 O painel Frontend estará disponível em `http://localhost:9000` e a API em `http://localhost:8080`.
 
+#### Opção 4 — Script de instalação automática (Linux/macOS)
+
+Detecta o sistema operacional, baixa os binários e o frontend, e registra os serviços para iniciar com o sistema:
+
+```bash
+curl -fsSL https://github.com/damiaoterto/jandaira/releases/latest/download/install.sh | sudo bash
+```
+
+O painel ficará em `http://localhost:9000` e a API em `http://localhost:8080`.
+
+#### Opção 5 — Windows
+
+Baixe o instalador da [página de releases](https://github.com/damiaoterto/jandaira/releases/latest) e execute como Administrador no PowerShell:
+
+```powershell
+.\install-windows.ps1
+```
+
 ### Executar a colmeia
 
 ```bash

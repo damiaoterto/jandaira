@@ -288,6 +288,24 @@ docker run -d -p 8080:8080/tcp -p 9000:9000/tcp ghcr.io/damiaoterto/jandaira:lat
 
 The Frontend dashboard will be available at `http://localhost:9000` and the API at `http://localhost:8080`.
 
+#### Option 4 — Automatic installation script (Linux/macOS)
+
+Detects the OS, downloads the binaries and frontend, and registers services to start with the system:
+
+```bash
+curl -fsSL https://github.com/damiaoterto/jandaira/releases/latest/download/install.sh | sudo bash
+```
+
+The dashboard will be at `http://localhost:9000` and the API at `http://localhost:8080`.
+
+#### Option 5 — Windows
+
+Download the installer from the [releases page](https://github.com/damiaoterto/jandaira/releases/latest) and run it as Administrator in PowerShell:
+
+```powershell
+.\install-windows.ps1
+```
+
 ### Run the hive
 
 ```bash
