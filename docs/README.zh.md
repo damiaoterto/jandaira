@@ -1,584 +1,184 @@
-# 🐝 Jandaira 蜂群操作系统
+# 🐝 Jandaira Swarm OS
 
 <p align="center">
   <img src="../jandaira.png" alt="Jandaira Logo"/>
 </p>
 
-一个用 Go 语言编写的**多智能体自主框架**，灵感来自巴西本土蜂 *Melipona subnitida*——**Jandaíra** 蜂的集体智慧。
+一个用 Go 编写的简单而强大的**自主多智能体**框架。受巴西本土蜜蜂 **Jandaíra** 的启发，它允许您创建安全高效地协同工作的 AI “蜂巢”。
+
+> [English](README.en.md) · [Português](../README.md) · [Español](README.es.md) · **中文** · [Русский](README.ru.md)
 
 ---
 
-> 🌐 [English](README.en.md) · [Português](../README.md) · **中文** · [Русский](README.ru.md)
+## 🚀 安装与设置（从这里开始！）
 
----
+运行 Jandaira 非常容易！系统自带嵌入式向量数据库，因此如果您只运行 API，**不需要 Docker**。
 
-## 📖 为什么叫"Jandaira"？
+### 1. 先决条件
+* 安装 [Go](https://go.dev/) (1.22 或更高版本)。
+* 一个 OpenAI API 密钥 (或兼容的密钥)。
 
-**Jandaíra**（*Melipona subnitida*）是一种特产于巴西 Caatinga 生物群落的无刺蜂。它小巧、坚韧、协作能力出众——无需中央领导者便能建造出高效的蜂巢。每只工蜂都知道自己的职责，自主执行任务，并将结果反馈给集体。
 
-这正是本项目所实现的架构模型：
 
-- **蜂王（`Queen`）** 不执行任务——她负责编排、验证策略和确保安全。
-- **专家智能体（`Specialists`）** 是轻量级智能体，工具受限，在隔离的沙箱中执行。
-- **花蜜（Nectar）** 是 Token 预算的隐喻：每个智能体消耗花蜜；花蜜耗尽，蜂巢停止运作。
-- **蜂巢（`Honeycomb`）** 是两层持久化记忆系统：`ShortTermMemory` 将近期上下文保存在 RAM 中并自动按 TTL 过期；内嵌的 `VectorEngine`（BadgerDB + HNSW）将整合后的长期知识作为向量嵌入归档——无需外部进程。
-- **知识图谱（`KnowledgeGraph`）** 映射智能体、主题和工具之间的关系——蜂王在每次任务前查询它，以复用在类似目标上已成功过的专家配置文件。
-- **养蜂人（Beekeeper）** 是回路中的人类：可以在 AI 执行任何操作之前批准或阻止它。
-- **Webhook（Webhook Engine）** 是外部 HTTP 触发器，允许 CI/CD 系统、GitHub、Prometheus 等工具只需调用一个 URL 即可启动智能体蜂群。**GoalTemplate** 使用 Go 原生的 `text/template` 将传入的 JSON 载荷转换为蜂王将处理的目标——无需重新编译二进制文件。
+### 2. 选择安装方式
 
----
-
-## 🏗️ 架构
-
-### 流程概览
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                   API REST + WebSocket (:8080)                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  👤 客户端通过 POST /api/dispatch 发送目标               │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ DispatchWorkflow()
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    蜂王（编排者）                                  │
-│                                                                  │
-│  ┌──────────────┐   ┌─────────────┐   ┌──────────────────────┐  │
-│  │  GroupQueue  │   │   策略      │   │   NectarUsage ($$)   │  │
-│  │  (FIFO, N=3) │   │ (隔离,      │   │   Token 预算         │  │
-│  │              │   │  审批)      │   │   每个蜂群           │  │
-│  └──────────────┘   └─────────────┘   └──────────────────────┘  │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ 管道（接力赛）
-          ┌────────────────┴─────────────────┐
-          ▼                                  ▼
-┌──────────────────────┐          ┌──────────────────────┐
-│  专家 #1             │  ctx     │  专家 #2             │
-│  "开发者"            │ ──────►  │  "审计员"            │
-│  工具: write_file    │          │  工具: execute_code  │
-│         search_mem   │          │         read_file    │
-└──────────┬───────────┘          └──────────┬───────────┘
-           │                                 │
-           ▼                                 ▼
-┌──────────────────────────────────────────────────────────┐
-│                   🔐 安全层                               │
-│   每次接力之间的加密载荷（AES-GCM）——上下文从不以         │
-│   纯文本传输                                             │
-└──────────────────────────────────────────────────────────┘
-           │
-           ▼
-┌──────────────────────────────────────────────────────────┐
-│              👨‍🌾 养蜂人（人在回路中）                    │
-│   RequiresApproval=true → WS 发送 approval_request       │
-│   approved=true → 授权 │ approved=false → 阻止           │
-└──────────────────────────────────────────────────────────┘
-           │
-           ▼
-┌──────────────────────────────────────────────────────────┐
-│           🍯 蜂巢（VectorEngine）                        │
-│   工作流结果被嵌入并索引                                  │
-│   内嵌长期记忆（BadgerDB + HNSW）                        │
-└──────────────────────────────────────────────────────────┘
-```
-
-### 包结构
-
-```
-jandaira/
-├── cmd/
-│   └── api/
-│       └── main.go          # 入口点：HTTP + WebSocket 服务器
-│
-└── internal/
-    ├── brain/               # 蜂群神经系统
-    │   ├── open_ai.go       # Brain：通过 OpenAI 实现 Chat + Embed
-    │   ├── memory.go        # Honeycomb：接口 + Result/Document 类型
-    │   ├── hnsw.go          # HNSW 索引（近似最近邻）
-    │   ├── vector_engine.go # VectorEngine：内嵌 BadgerDB + HNSW
-    │   ├── graph.go         # KnowledgeGraph：智能体 ↔ 主题图谱（GraphRAG）
-    │   ├── short_term.go    # ShortTermMemory：TTL 缓冲区 + 自动压缩
-    │   └── document.go      # 文本提取 + 分块（PDF、DOCX、XLSX…）
-    │
-    ├── queue/               # 具有有限并发的 FIFO 调度器
-    │   └── group_queue.go   # GroupQueue：每组 N 个 worker
-    │
-    ├── security/            # 智能体间载荷加密
-    │   ├── crypto.go        # AES-GCM 封装/解封 + 密钥生成
-    │   ├── vault.go         # 本地密钥库
-    │   └── sandbox.go       # 执行沙箱
-    │
-    ├── swarm/               # 智能体系统核心
-    │   └── queen.go         # 编排者：策略、HIL、管道
-    │
-    ├── tool/                # 智能体可用工具
-    │   ├── list_directory.go
-    │   ├── search_memory.go # search_memory + store_memory
-    │   └── wasm.go          # 通过 wazero 的执行沙箱
-    │
-    ├── api/                 # HTTP 处理器和 WebSocket
-    ├── config/              # 应用配置
-    ├── database/            # SQLite 连接
-    ├── i18n/                # 国际化
-    ├── model/               # 数据模型
-    ├── prompt/              # 提示词模板
-    ├── repository/          # 数据访问
-    └── service/             # 业务逻辑
-```
-
----
-
-## 🧠 记忆架构
-
-`internal/brain/` 远不止是一个向量存储：它实现了一个集成知识图谱的两层记忆层次结构，随每次任务不断积累。
-
-### 短期记忆 — `ShortTermMemory`
-
-`brain/short_term.go` 是一个带有每条消息 TTL 的消息缓冲区，解决了长时间运行的蜂群中 LLM 上下文溢出的问题：
-
-- 每条消息在插入时获得一个到期时间戳
-- 过期条目在下次访问时被静默丢弃
-- **自动压缩**：当缓冲区达到 `maxEntries` 时，LLM 将积累的历史摘要为一个密集段落 → 摘要被嵌入并作为 `short_term_archive` 归档到 VectorEngine → RAM 缓冲区被清空
-- 会话结束时应调用 `Flush(ctx)` 以确保完整归档；若 LLM 失败，原始记录将作为备用方案归档
-
-```
- 新消息插入
-     │
-     ▼
-┌──────────────────────────────────┐
-│      ShortTermMemory (RAM)       │
-│  [msg₁ · 过期: +30分钟]         │
-│  [msg₂ · 过期: +30分钟]         │
-│  ...                             │
-│  [msgN · 过期: +30分钟]         │ ← 溢出：compact() 触发
-└──────────────────────────────────┘
-     │
-     ▼
-  LLM 摘要历史记录
-     │
-     ▼
-┌──────────────────────────────────┐
-│  VectorEngine（长期记忆）        │
-│  type: "short_term_archive"      │
-└──────────────────────────────────┘
-```
-
-### 知识图谱 — `KnowledgeGraph`（GraphRAG）
-
-`brain/graph.go` 实现了一个 JSON 持久化知识图谱（`~/.config/jandaira/knowledge_graph.json`），在每次完成的工作流后自动积累专业知识。
-
-**数据模型**
-
-| 元素 | 类型 | 示例 |
-|---|---|---|
-| 专家配置文件 | `agent` 节点 | `"数据分析师"` |
-| 任务领域 | `topic` 节点 | `"财务报告分析"` |
-| 专业知识链接 | `expert_in` 边 | `agent → topic` |
-
-**蜂王的自动学习周期**
-
-每次工作流完成后，`registerWorkflowInGraph` 执行：
-1. 使用任务目标（最多 80 个字符）创建/更新 `topic` 节点
-2. 为管道中的每个专家创建/更新 `agent` 节点
-3. 创建 `expert_in` 边，将每个智能体链接到主题
-
-组装下一个蜂群之前，`graphContextForGoal` 使用新目标的关键词查询图谱，并将 **"PAST SPECIALIST KNOWLEDGE"** 块注入蜂王的元规划提示词中。
-
-结果：蜂王随时间设计出越来越好的蜂群，仅通过图谱查询即可实现，无需额外的 LLM 调用。
-
----
-
-## ⚡ 与 NanoClaw 的差异对比
-
-| 特性 | NanoClaw (Python) | Jandaira (Go) |
-|---|---|---|
-| **语言** | Python | Go 1.22+ |
-| **并发** | `asyncio` / 线程 | 原生 Goroutines + channels |
-| **智能体隔离** | Docker 容器 | 通过 `wazero` 的 Wasm（无需 Docker） |
-| **IPC 通信** | 磁盘上的 JSON / Redis | 类型化共享内存 |
-| **智能体间加密** | ❌ 不存在 | ✅ 每次接力之间的 AES-GCM |
-| **人在回路中** | 可选 / 外部 | ✅ 原生：养蜂人模式（通过 WebSocket） |
-| **Token 预算** | 手动 | ✅ 每个蜂群自动 `NectarUsage` |
-| **向量记忆** | Pinecone / 外部 | ✅ 内嵌 VectorEngine（BadgerDB + HNSW） |
-| **知识图谱** | ❌ 不存在 | ✅ `KnowledgeGraph` — 原生 GraphRAG |
-| **短期记忆** | ❌ 不存在 | ✅ `ShortTermMemory` 含 TTL + LLM 压缩 |
-| **界面** | 不存在 | ✅ REST API + WebSocket |
-| **IPC 延迟** | 高（磁盘/网络 I/O） | 最小（内存） |
-
-### 为什么 Go 在这里优于 Python？
-
-1. **Goroutine 比线程更便宜** — 运行 100 个并发智能体的成本远低于使用 Python `asyncio` 或 `threading` 的成本。
-2. **静态二进制** — 零运行时依赖。`go build` 生成的可执行文件可在任何 Linux 上运行，无需安装任何东西。
-3. **没有 GIL** — Python 有全局解释器锁；Go 真正地在多核上并行化。
-4. **`wazero` 是 100% Go** — Wasm 运行时不需要 CGo、Docker 或外部系统。智能体在同一进程内的沙箱中运行。
-
----
-
-## 🚀 使用教程
-
-### 前提条件
-
+**选项 A：自动安装（Linux/macOS - 最简单）**
+自动为您下载并配置一切。
 ```bash
-# Go 1.22 或更高版本
-go version
-
-# OpenAI API 密钥
-export OPENAI_API_KEY="sk-..."
+curl -fsSL https://github.com/damiaoterto/jandaira/releases/latest/download/install.sh | sudo bash
 ```
+*前端面板：`http://localhost:9000` | API：`http://localhost:8080`*
 
-> **无需 Docker。** 向量数据库（`VectorEngine`）已内嵌在二进制文件中，自动将数据持久化到 `~/.config/jandaira/vectordb/`。
-
-### 安装
-
-#### 方式 1 — 从源码构建
-
-```bash
-git clone https://github.com/damiaoterto/jandaira.git
-cd jandaira
-
-# 下载依赖
-go mod tidy
-
-# 构建 API 服务器
-go build -o jandaira-api ./cmd/api/
-```
-
-#### 方式 2 — 直接运行
-
-```bash
-go run ./cmd/api/main.go --port 8080
-```
-
-#### 方式 3 — Docker (全栈)
-
-若要通过 Docker 运行完整的项目（后端和前端），只需拉取并运行官方镜像：
-
+**选项 B：通过 Docker（全栈）**
+如果您希望 Backend + Frontend 一起运行，而不在电脑上安装任何依赖项，这是理想选择。
 ```bash
 docker pull ghcr.io/damiaoterto/jandaira:latest
 docker run -d -p 8080:8080/tcp -p 9000:9000/tcp ghcr.io/damiaoterto/jandaira:latest
 ```
 
-前端面板将在 `http://localhost:9000` 可用，而 API 将在 `http://localhost:8080` 可用。
-
-#### 方式 4 — 自动安装脚本（Linux/macOS）
-
-自动检测操作系统，下载二进制文件和前端，并注册开机自启服务：
-
+**选项 C：从源码编译**
+适合想要修改或为项目做贡献的人。
 ```bash
-curl -fsSL https://github.com/damiaoterto/jandaira/releases/latest/download/install.sh | sudo bash
+git clone https://github.com/damiaoterto/jandaira.git
+cd jandaira
+go mod tidy
+go run ./cmd/api/main.go --port 8080
 ```
 
-面板将在 `http://localhost:9000` 可用，API 在 `http://localhost:8080` 可用。
-
-#### 方式 5 — Windows
-
-从 [Releases 页面](https://github.com/damiaoterto/jandaira/releases/latest) 下载安装程序，并以管理员身份在 PowerShell 中运行：
-
+**选项 D：Windows 安装**
+从 [Releases 页面](https://github.com/damiaoterto/jandaira/releases/latest) 下载安装程序并在 PowerShell 中以管理员身份运行它：
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
-### 运行蜂巢
+### 3. 测试您的蜂巢
+启动服务器后（它将在 8080 端口上运行），您可以向 AI 发送目标：
 
 ```bash
-./jandaira-api --port 8080
+curl -X POST http://localhost:8080/api/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "创建一个名为 sum.go 的 Go 文件，计算两个数字的和", "group_id": "alpha-swarm"}'
 ```
-
-服务器将在 `http://localhost:8080` 上可用。通过 WebSocket `ws://localhost:8080/ws` 实时监控事件。
-
-### 示例：创建并测试一个 Go 文件
-
-1. 通过 `POST /api/dispatch` 发送目标：
-
-   ```bash
-   curl -X POST http://localhost:8080/api/dispatch \
-     -H "Content-Type: application/json" \
-     -d '{"goal": "创建一个名为 sum.go 的 Go 文件，将两个数字相加", "group_id": "enxame-alfa"}'
-   ```
-
-2. 蜂王将任务分配给专家管道：
-   - **Wasm 开发者** → 使用 `write_file` 编写 `sum.go`
-   - **质量审计员** → 使用 `execute_code` 执行代码并生成报告
-
-3. 通过 WebSocket 跟踪进度：
-
-   ```json
-   { "type": "agent_change", "agent": "Wasm 开发者" }
-   { "type": "tool_start",   "agent": "Wasm 开发者", "tool": "write_file", "args": "{...}" }
-   { "type": "result",       "message": "# 最终报告\n..." }
-   ```
-
-4. 如果 `RequiresApproval: true`，**养蜂人模式** 激活。服务器通过 WebSocket 发送 `approval_request` 并等待响应：
-
-   ```json
-   // 服务器发送：
-   { "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
-
-   // 客户端响应：
-   { "type": "approve", "id": "req-1712345678901", "approved": true }
-   ```
-
-5. 最后，结果被嵌入并保存到本地 VectorEngine 以供将来使用。
-
-### 配置你自己的蜂群
-
-编辑 `cmd/api/main.go` 定义蜂群策略：
-
-```go
-queen.RegisterSwarm("my-swarm", swarm.Policy{
-    MaxNectar:        50000,  // Token 预算
-    Isolate:          true,   // 每组隔离上下文
-    RequiresApproval: true,   // 养蜂人模式（HIL）
-})
-```
-
-### 可用工具
-
-| 工具 | 描述 |
-|---|---|
-| `list_directory` | 列出目录中的文件和文件夹 |
-| `read_file` | 读取文件内容 |
-| `write_file` | 创建或覆盖文件 |
-| `execute_code` | 在隔离的 Wasm 沙箱中执行代码 |
-| `web_search` | 通过 DuckDuckGo 搜索网络（直接答案、定义、摘要） |
-| `search_memory` | 在蜂巢向量记忆（BadgerDB + HNSW）中进行语义搜索 |
-| `store_memory` | **唯一永久持久化机制。** 将数据保存到内嵌 VectorEngine，支持可选的 `type` 和 `metadata` 字段。 |
+您可以通过 WebSocket 实时监控 AI 正在做什么：`ws://localhost:8080/ws`。
 
 ---
 
-## 🔐 安全性
+## ⚖️ 许可说明（通俗易懂）
 
-专家之间每次"接力"都是**用 AES-GCM 加密的**：
+**Jandaira Swarm OS** 采用双重许可模型，以确保对社区和企业公平。
 
-1. 在每个工作流开始时生成一个临时会话密钥
-2. 累积的上下文**在发送给下一个专家之前被加密**
-3. 专家接收加密载荷，解密，处理，并**重新加密**其响应
-4. 没有上下文在智能体之间以纯文本传输
+1. **面向社区（100% 免费 - AGPLv3）：**
+   您可以免费下载、使用、修改和分发 Jandaira。
+   ⚠️ **规则：** 如果您使用 Jandaira 创建产品、项目或 Web 服务，**您必须将项目的源代码公开**。
 
-这模拟了一个安全的 IPC 通道，即使一个智能体被攻破，它也无法读取管道中其他智能体的历史记录。
+2. **面向企业（商业许可）：**
+   您是否想在公司使用 Jandaira，或者创建闭源产品，但**不想**分享您系统的源代码？
+   ✅ **解决方案：** 我们销售**商业许可**。拥有它，您可以在私人项目中使用 Jandaira，而无需公开您的代码。联系我们！
 
 ---
 
-## 🪝 Webhook Engine
+## 📖 什么是 Jandaira？
 
-**Webhook Engine** 允许外部系统通过 HTTP 触发蜂巢，无需额外认证。每个 webhook 在 URL 中有唯一的 `slug`、基于 Go 原生 `text/template` 的 **GoalTemplate**，以及可选的 `secret` 用于 HMAC-SHA256 验证。
+受巴西本土蜜蜂无需中央领导即可协同工作的启发，我们的系统将工作分配给多个“AI 智能体”：
 
-### 执行流程
+- **女王 (`Queen`)：** 不执行任务。她只负责组织、管理“花蜜”（代币预算），并确保安全。
+- **专家 (`Specialists`)：** 工作蜂。每个智能体都有特定的角色（例如，开发人员、审计员）和有限的工具来执行其工作。
+- **养蜂人（您！）：** 闭环中的人类。AI 在执行危险操作之前可能会请求您的批准。
 
-```
-外部系统（GitHub、Prometheus、Slack、CI/CD…）
-     │  POST /api/webhooks/monitor-deploy
-     │  Body: {"project_name": "Jandaira", "env": "prod"}
-     ▼
-┌─────────────────────────────────────────────┐
-│              Webhook Engine                  │
-│                                             │
-│  1. 通过 slug 查找 webhook                  │
-│  2. 验证 HMAC-SHA256（如果设置了 secret）   │
-│  3. 用 payload 渲染 GoalTemplate：          │
-│     "分析 Jandaira 在 prod 的部署"          │
-│  4. 调用 Queen.DispatchWorkflow             │
-└─────────────────────────────────────────────┘
-     │
-     ▼
-蜂王 → AssembleSwarm / BuildSpecialists → 结果通过 WebSocket 推送
-```
+---
 
-### GoalTemplate
+## 🏗️ 架构如何工作
 
-使用 Go 原生 `text/template`。JSON payload 中的任何字段均可通过 `{{.字段}}` 引用：
+### 主要流程
 
-```
-"分析项目 {{.project_name}} 在环境 {{.env}} 中的部署"
-"告警：{{.alertname}} — 实例 {{.instance}}（{{.severity}}）"
-"{{.repository.name}} 中的 PR #{{.number}}：{{.title}}"
-```
+```mermaid
+sequenceDiagram
+    participant C as 👤 客户端
+    participant Q as 👑 女王 (API)
+    participant E1 as 🐝 专家 1
+    participant E2 as 🐝 专家 2
+    participant H as 👨‍🌾 养蜂人
+    participant BD as 🍯 向量数据库
 
-### HMAC-SHA256 验证
-
-如果设置了 `secret`，调用方必须包含以下请求头：
-
-```
-X-Hub-Signature-256: sha256=<body 的十六进制 HMAC-SHA256>
+    C->>Q: 发送目标 (POST /api/dispatch)
+    Q->>Q: 验证策略和花蜜 (Token)
+    Q->>E1: 传递接力棒 (启动管道)
+    E1->>E1: 执行任务 (例：编写代码)
+    E1-->>E2: 发送结果 (AES-GCM 加密有效载荷)
+    E2->>E2: 执行任务 (例：审计代码)
+    E2->>H: 请求批准？
+    H-->>E2: 人类批准操作
+    E2->>BD: 保存到向量数据库
+    Q-->>C: 返回最终结果
 ```
 
-与 GitHub Webhooks 标准兼容。签名无效的 payload 将收到 `401 Unauthorized`。
+### 内存如何工作（短期和长期）
 
-### Outbound Webhooks (出站 Webhooks)
+为了避免消耗太多代币并使 AI 随时间推移保持智能，我们将内存分为两层：
 
-Jandaira 还支持 **Outbound Webhooks**，允许蜂巢在任务完成后自动将处理结果发送到外部系统（如 Discord、Slack 等）。可以通过 `BodyTemplate` 自定义请求格式。
-
-模板内置了发送结构化 JSON payload 所需的基本函数（过滤器）：
-- `json`：安全地转义 JSON 中的文本（如换行符、引号）。
-- `truncate <长度>`：将字符串截断为最大长度，防止在 Discord 等 API 中出现错误（2000 个字符限制）。
-- `normalize`：清理 AI 文本，删除编排元数据、内部日志和内存转储，仅保留最后一个代理的最终报告。
-
-**出站 Payload 示例：**
-```json
-{
-  "content": {{.result | normalize | truncate 1900 | json}}
-}
+```mermaid
+graph TD
+    M1[💬 新消息] --> STM[🧠 短期内存 RAM]
+    STM -->|达到限制？| COMPACT[LLM 生成摘要]
+    COMPACT --> LTM[(🍯 长期向量数据库)]
+    
+    style STM fill:#f9f,stroke:#333,stroke-width:2px
+    style LTM fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
-### 完整示例
+### 知识图谱（AI 自我学习）
 
-```bash
-# 创建 webhook
-curl -X POST http://localhost:8080/api/webhooks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Monitor Deploy",
-    "slug": "monitor-deploy",
-    "colmeia_id": "<蜂巢ID>",
-    "secret": "我的密钥",
-    "goal_template": "分析项目 {{.project_name}} 在环境 {{.env}} 中的部署",
-    "active": true
-  }'
+女王从过去的任务中学习！如果一个智能体在“分析销售数据”方面做得很好，她将来会再次召唤它。
 
-# 触发（带 HMAC 签名）
-BODY='{"project_name":"Jandaira","env":"prod"}'
-SIG="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "我的密钥" | awk '{print $2}')"
-
-curl -X POST http://localhost:8080/api/webhooks/monitor-deploy \
-  -H "Content-Type: application/json" \
-  -H "X-Hub-Signature-256: $SIG" \
-  -d "$BODY"
+```mermaid
+graph LR
+    O[目标: "分析销售"] --> R{女王检查图谱}
+    R -->|找到档案| A1((销售分析师))
+    A1 -->|专家| T[主题: "销售数据"]
+    R -->|根据经验组建团队| E[最终蜂群]
 ```
 
 ---
 
-## 🌐 API 参考
+## 🪝 Webhook 引擎（轻松集成）
 
-使用 `./jandaira-api --port 8080` 启动 HTTP 服务器，提供以下路由：
+您可以将 Jandaira 连接到 GitHub、Slack 等。当事件发生时，AI 会自动触发。
 
-### REST 路由
-
-#### 配置与调度
-
-| 方法 | 路由 | 描述 |
-|---|---|---|
-| `POST` | `/api/setup` | 首次运行时配置蜂巢 |
-| `POST` | `/api/dispatch` | 向蜂群提交目标（无状态） |
-| `GET` | `/api/tools` | 列出所有可用工具及其参数 |
-| `GET` | `/ws` | 打开 WebSocket 连接以接收实时事件 |
-
-#### 会话
-
-| 方法 | 路由 | 描述 |
-|---|---|---|
-| `GET` | `/api/sessions` | 列出所有会话 |
-| `POST` | `/api/sessions` | 创建新会话 |
-| `GET` | `/api/sessions/:id` | 获取带智能体的会话 |
-| `DELETE` | `/api/sessions/:id` | 删除会话（级联） |
-| `POST` | `/api/sessions/:id/dispatch` | 为会话调度工作流 |
-| `GET` | `/api/sessions/:id/agents` | 列出会话智能体 |
-| `POST` | `/api/sessions/:id/documents` | 上传并索引文档 |
-
-#### 持久蜂巢（Colmeias）
-
-蜂巢是持久化的命名实体。与会话不同，蜂巢可以**随时间接收多条消息**，将对话历史作为上下文注入每次新调度。智能体可由**用户预先定义**（自定义提示词和工具，仅限 `queen_managed=false`），也可由**蜂王自动组建**（`queen_managed=true`）。向 `queen_managed=true` 的蜂巢添加预定义智能体会返回 `409 Conflict`。
-
-| 方法 | 路由 | 描述 |
-|---|---|---|
-| `GET` | `/api/colmeias` | 列出所有蜂巢 |
-| `POST` | `/api/colmeias` | 创建蜂巢（`queen_managed: true/false`） |
-| `GET` | `/api/colmeias/:id` | 获取带智能体的蜂巢 |
-| `PUT` | `/api/colmeias/:id` | 更新蜂巢 |
-| `DELETE` | `/api/colmeias/:id` | 删除蜂巢（级联） |
-| `POST` | `/api/colmeias/:id/dispatch` | 向蜂巢发送消息 |
-| `GET` | `/api/colmeias/:id/historico` | 查看对话历史 |
-| `GET` | `/api/colmeias/:id/agentes` | 列出蜂巢智能体 |
-| `POST` | `/api/colmeias/:id/agentes` | 添加预定义智能体（需 `queen_managed=false`） |
-| `GET` | `/api/colmeias/:id/agentes/:agentId` | 按 ID 获取智能体 |
-| `PUT` | `/api/colmeias/:id/agentes/:agentId` | 编辑智能体（名称、提示词、工具） |
-| `DELETE` | `/api/colmeias/:id/agentes/:agentId` | 从蜂巢移除智能体 |
-
-#### Webhook 管理
-
-| 方法     | 路由                    | 描述                                     |
-| -------- | ----------------------- | ---------------------------------------- |
-| `POST`   | `/api/webhooks/:slug`   | **公开** — 触发关联蜂巢的工作流          |
-| `GET`    | `/api/webhooks`         | 列出所有 webhook                         |
-| `POST`   | `/api/webhooks`         | 创建 webhook                             |
-| `GET`    | `/api/webhooks/:id`     | 按 ID 获取 webhook                       |
-| `PUT`    | `/api/webhooks/:id`     | 更新 webhook                             |
-| `DELETE` | `/api/webhooks/:id`     | 删除 webhook                             |
-
-**示例 — 创建用户自定义智能体的蜂巢：**
-
-```bash
-# 1. 创建蜂巢
-curl -X POST http://localhost:8080/api/colmeias \
-  -H "Content-Type: application/json" \
-  -d '{"name": "研究蜂巢", "queen_managed": false}'
-
-# 2. 添加带自定义提示词的智能体
-curl -X POST http://localhost:8080/api/colmeias/{id}/agentes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "网络研究员",
-    "system_prompt": "你是一名研究专家。使用 web_search 收集最新信息。",
-    "allowed_tools": ["web_search", "search_memory", "store_memory"]
-  }'
-
-# 3. 发送第一条消息
-curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
-  -H "Content-Type: application/json" \
-  -d '{"goal": "查找本周人工智能领域的主要新闻"}'
-
-# 4. 发送后续消息（历史记录自动注入为上下文）
-curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
-  -H "Content-Type: application/json" \
-  -d '{"goal": "根据之前的研究，撰写一份高管摘要"}'
-```
-
-#### `POST /api/dispatch`
-
-```json
-// 请求
-{ "goal": "创建一个将两个数字相加的 Go 文件", "group_id": "enxame-alfa" }
-
-// 响应 202
-{ "message": "Mission dispatched to the swarm. Follow progress via WebSocket." }
+```mermaid
+graph LR
+    GH[GitHub / CI-CD] -->|POST JSON 负载| W[Webhook 引擎]
+    W -->|验证密码并转换 JSON| Q[👑 女王]
+    Q -->|执行任务| E[🐝 蜂群]
+    E -->|出站 Webhook| D[Discord / Slack]
 ```
 
 ---
 
-### WebSocket 事件（`/ws`）
+## ⚡ 为什么选择 Go 而不是 Python？
 
-#### 服务器 → 前端
-
-| `type` | 触发时机 | 相关字段 |
-|---|---|---|
-| `status` | 来自蜂王的进度消息 | `message` |
-| `agent_change` | 专家接管流水线 | `agent` |
-| `tool_start` | 工具即将执行 | `agent`, `tool`, `args` |
-| `approval_request` | AI 要使用受限工具 | `id`, `tool`, `args` |
-| `result` | 工作流最终报告 | `message` |
-| `error` | 失败或超时 | `message` |
-
-#### 前端 → 服务器
-
-```json
-{ "type": "approve", "id": "req-1712345678901", "approved": true }
-{ "type": "approve", "id": "req-1712345678901", "approved": false }
-```
+| 比较                        | NanoClaw (Python)         | Jandaira (Go) 🏆                       |
+| --------------------------- | ------------------------- | -------------------------------------- |
+| **性能**                    | 沉重，需要线程            | 使用原生 Goroutines 非常轻量           |
+| **安装**                    | 需要依赖项/Docker         | 一个可执行文件！                       |
+| **智能体之间的安全**        | 不存在                    | 原生 AES-GCM 加密                      |
+| **AI 数据库**               | 需要外部服务              | 内置向量数据库 (HNSW)！                |
+| **人类批准**                | 外部补丁                  | 原生通过 WebSocket 实时进行            |
 
 ---
 
-## ⚖️ 许可与商业用途 (双重许可制)
+## 🌐 API 快速参考
 
-**Jandaira Swarm OS** 采用双重许可模式分发，旨在促进开源社区发展的同时满足企业合规需求。
-
-* **开源用途（AGPLv3）：** 源代码在 [GNU Affero General Public License v3.0](../LICENCE) 许可下免费提供。
-* **企业商业用途：** 如果企业希望将 Jandaira 集成到专有商业产品中，我们提供**商业许可**。
+| 操作 | HTTP 路由 | 描述 |
+| --- | --- | --- |
+| **分配任务** | `POST /api/dispatch` | 向蜂巢发送工作。 |
+| **列出工具** | `GET /api/tools` | 查看 AI 能做什么。 |
+| **实时监控** | `GET /ws` | WebSocket，用于监控 AI 并批准操作。 |
+| **Webhooks** | `POST /api/webhooks/:slug` | 触发外部事件。 |
 
 ---
 
 ## 🤝 贡献
 
-欢迎 Pull Request！在开始之前，请先打开一个 issue 描述功能或 bug。
+非常欢迎 Pull Request！在开始编码之前，请打开一个 issue 描述您想要改进的内容。
 
----
-
-*Jandaira：自主、安全与巴西蜂群的力量。* 🐝
+_Jandaira：自主、安全与巴西蜂群的力量。_ 🐝

@@ -4,514 +4,181 @@
   <img src="../jandaira.png" alt="Jandaira Logo"/>
 </p>
 
-Un marco de **múltiples agentes autónomos** escrito en Go, inspirado en la inteligencia colectiva de la abeja nativa sudamericana _Melipona subnitida_ — la **Jandaíra**.
+Un framework simple y poderoso de **múltiples agentes autónomos** escrito en Go. Inspirado en la abeja nativa brasileña **Jandaíra**, permite crear "colmenas" de IAs que trabajan juntas de forma segura y eficiente.
+
+> [English](README.en.md) · [Português](../README.md) · **Español** · [中文](README.zh.md) · [Русский](README.ru.md)
 
 ---
 
-> 🌐 [English](README.en.md) · [Português](../README.md) · [中文](README.zh.md) · [Русский](README.ru.md) · **Español**
+## 🚀 Configuración e Instalación (¡Empieza aquí!)
 
----
+¡Ejecutar Jandaira es muy fácil! El sistema ya viene con su propia base de datos incorporada, por lo que **no necesitas Docker** si solo vas a ejecutar la API.
 
-## 📖 ¿Por qué "Jandaira"?
+### 1. Requisitos Previos
+* Tener [Go](https://go.dev/) (versión 1.22 o superior) instalado.
+* Una clave de API de OpenAI (o compatible).
 
-La **Jandaíra** es una abeja sin aguijón. Pequeña, resiliente y extraordinariamente cooperativa — no necesita de un líder centralizado para construir una colmena funcional. Cada obrera conoce su papel, ejecuta su tarea con autonomía y devuelve el resultado a la comunidad.
 
-Este es exactamente el modelo de arquitectura que el proyecto implementa:
 
-- La **Reina (`Queen`)** no ejecuta tareas — ella orquesta, valida políticas y garantiza la seguridad.
-- Las **Especialistas (`Specialists`)** son agentes ligeros con herramientas restringidas, operando en silos aislados.
-- El **Néctar** es la metáfora para el presupuesto de tokens: cada agente consume néctar; cuando se acaba, la colmena se detiene.
-- El **Panal (`Honeycomb`)** es el sistema de memoria persistente de dos niveles: `ShortTermMemory` mantiene el contexto reciente en RAM con expiración automática por TTL; el `VectorEngine` integrado (BadgerDB + HNSW) archiva el conocimiento consolidado a largo plazo como vectores — sin dependencias externas.
-- El **Grafo de Conocimiento (`KnowledgeGraph`)** mapea relaciones entre agentes, temas y herramientas — la Reina lo consulta antes de cada misión para reutilizar perfiles de especialistas que ya tuvieron éxito en objetivos similares.
-- El **Apicultor** es el humano en el bucle: aprueba o bloquea cualquier acción antes de que la IA la ejecute.
-- Los **Webhooks** son disparadores HTTP externos que permiten a sistemas de CI/CD, GitHub, Prometheus y similares lanzar enjambres de agentes simplemente llamando a una URL. El **GoalTemplate** usa `text/template` nativo de Go para transformar el payload JSON recibido en el objetivo que la Reina procesará — sin recompilar el binario.
+### 2. Elige cómo instalar
 
----
-
-## 🏗️ Arquitectura
-
-### Visión general del flujo
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                   API REST + WebSocket (:8080)                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  👤 El cliente envía el objetivo vía POST /api/dispatch  │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ DispatchWorkflow()
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Reina (Orquestradora)                          │
-│  ┌──────────────┐   ┌─────────────┐   ┌──────────────────────┐  │
-│  │  GroupQueue  │   │   Política  │   │   NectarUsage ($$)   │  │
-│  │  (FIFO, N=3) │   │ (aislado,   │   │   Presupuesto tokens │  │
-│  │              │   │  aprobación)│   │   por enjambre       │  │
-│  └──────────────┘   └─────────────┘   └──────────────────────┘  │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ Pipeline (Paso del Testigo)
-          ┌────────────────┴─────────────────┐
-          ▼                                  ▼
-┌──────────────────────┐          ┌──────────────────────┐
-│  Especialista #1     │  ctx     │  Especialista #2     │
-│  "Desarrolladora"    │ ──────►  │  "Auditora"          │
-│  Tools: write_file   │          │  Tools: execute_code │
-│         search_mem   │          │         read_file    │
-└──────────┬───────────┘          └──────────┬───────────┘
-           │                                 │
-           ▼                                 ▼
-┌──────────────────────────────────────────────────────────┐
-│                   🔐 Capa de Seguridad                    │
-│   Carga útil cifrada (AES-GCM) entre cada paso           │
-│   — el contexto nunca viaja en texto plano               │
-└──────────────────────────────────────────────────────────┘
-           │
-           ▼
-┌──────────────────────────────────────────────────────────┐
-│              👨‍🌾 Apicultor (Humano en el Bucle)           │
-│   RequiresApproval=true → WS envía approval_request      │
-│   approved=true → autoriza │ approved=false → bloquea    │
-└──────────────────────────────────────────────────────────┘
-           │
-           ▼
-┌──────────────────────────────────────────────────────────┐
-│           🍯 Panal (VectorEngine)                        │
-│   El resultado del flujo se inserta e indexa             │
-│   Memoria integrada a largo plazo (BadgerDB + HNSW)      │
-└──────────────────────────────────────────────────────────┘
-```
-
-### Mapa de paquetes
-
-```
-jandaira/
-├── cmd/
-│   └── api/
-│       └── main.go          # Punto de entrada: servidor HTTP + WebSocket
-│
-└── internal/
-    ├── brain/               # Sistema nervioso del enjambre
-    │   ├── open_ai.go       # Brain: Chat + Embed vía OpenAI
-    │   ├── memory.go        # Honeycomb: interfaz + tipos Result/Document
-    │   ├── hnsw.go          # Índice HNSW (vecinos más cercanos aproximados)
-    │   ├── vector_engine.go # VectorEngine: BadgerDB + HNSW integrado
-    │   ├── graph.go         # KnowledgeGraph: grafo agente ↔ tema (GraphRAG)
-    │   ├── short_term.go    # ShortTermMemory: buffer TTL + compactación automática
-    │   └── document.go      # Extracción de texto + chunking (PDF, DOCX, XLSX…)
-    │
-    ├── queue/               # Planificador FIFO con concurrencia limitada
-    │   └── group_queue.go
-    │
-    ├── security/            # Cifrado de cargas entre agentes
-    │   ├── crypto.go        # AES-GCM Seal/Open + generación de claves
-    │   ├── vault.go         # Almacén local de secretos
-    │   └── sandbox.go       # Sandbox de ejecución
-    │
-    ├── swarm/               # Núcleo del sistema de agentes
-    │   └── queen.go         # Orquestradora: políticas, HIL, pipeline
-    │
-    ├── tool/                # Herramientas disponibles para los agentes
-    │   ├── list_directory.go
-    │   ├── search_memory.go # search_memory + store_memory
-    │   └── wasm.go          # Sandbox de ejecución via wazero
-    │
-    ├── api/                 # Handlers HTTP y WebSocket
-    ├── config/
-    ├── database/
-    ├── i18n/
-    ├── model/
-    ├── prompt/
-    ├── repository/
-    └── service/
-```
-
----
-
-## 🧠 Arquitectura de Memoria
-
-`internal/brain/` va mucho más allá de un almacén vectorial: implementa una jerarquía de memoria de dos niveles con un grafo de conocimiento que crece con cada misión.
-
-### Memoria a Corto Plazo — `ShortTermMemory`
-
-`brain/short_term.go` es un buffer de mensajes con TTL por entrada. Resuelve el problema de desbordamiento de contexto en enjambres de larga duración:
-
-- Cada mensaje recibe un timestamp de expiración al insertarse
-- Las entradas expiradas se descartan silenciosamente en el siguiente acceso
-- **Compactación automática**: cuando el buffer alcanza `maxEntries`, el LLM resume el historial acumulado en un párrafo denso → el resumen se incrusta y archiva en VectorEngine como `short_term_archive` → el buffer RAM se vacía
-- `Flush(ctx)` debe llamarse al final de cada sesión para garantizar el archivado completo
-
-```
- Nuevo mensaje insertado
-         │
-         ▼
-┌──────────────────────────────────┐
-│      ShortTermMemory (RAM)       │
-│  [msg₁ · expira: +30min]        │
-│  [msg₂ · expira: +30min]        │
-│  ...                             │
-│  [msgN · expira: +30min]        │ ← overflow: compact() se dispara
-└──────────────────────────────────┘
-         │
-         ▼
-   LLM resume el historial
-         │
-         ▼
-┌──────────────────────────────────┐
-│  VectorEngine (Largo Plazo)      │
-│  type: "short_term_archive"      │
-└──────────────────────────────────┘
-```
-
-### Grafo de Conocimiento — `KnowledgeGraph` (GraphRAG)
-
-`brain/graph.go` implementa un grafo de conocimiento persistido en JSON (`~/.config/jandaira/knowledge_graph.json`) que acumula expertise automáticamente tras cada workflow completado.
-
-**Modelo de datos**
-
-| Elemento | Tipo | Ejemplo |
-|---|---|---|
-| Perfil de especialista | nodo `agent` | `"Analista de Datos"` |
-| Dominio de la misión | nodo `topic` | `"análisis de informe financiero"` |
-| Vínculo de expertise | arista `expert_in` | `agent → topic` |
-
-**Ciclo de aprendizaje automático de la Reina**
-
-Después de cada workflow, `registerWorkflowInGraph` registra:
-1. Crea/actualiza un nodo `topic` con el objetivo de la misión
-2. Para cada especialista del pipeline, crea/actualiza un nodo `agent`
-3. Crea aristas `expert_in` vinculando cada agente al tema
-
-Antes de montar el siguiente enjambre, `graphContextForGoal` consulta el grafo e inyecta un bloque **"PAST SPECIALIST KNOWLEDGE"** en el prompt de meta-planificación de la Reina.
-
-Resultado: la Reina diseña enjambres progresivamente mejores con el tiempo, sin llamadas LLM adicionales.
-
----
-
-## 🚀 Tutorial de Uso
-
-### Requisitos Previos
-
+**Opción A: Instalación Automática (Linux/macOS - Más Fácil)**
+Descarga y configura todo por ti automáticamente.
 ```bash
-# Go 1.22 o superior
-go version
-
-# Clave de OpenAI
-export OPENAI_API_KEY="sk-..."
+curl -fsSL https://github.com/damiaoterto/jandaira/releases/latest/download/install.sh | sudo bash
 ```
+*Panel Frontend: `http://localhost:9000` | API: `http://localhost:8080`*
 
-> **No se requiere Docker.** La base de datos vectorial (`VectorEngine`) está integrada en el binario y persiste automáticamente en `~/.config/jandaira/vectordb/`.
-
-### Instalación
-
-#### Opción 1 — Compilar desde el código fuente
-
-```bash
-git clone https://github.com/damiaoterto/jandaira.git
-cd jandaira
-go mod tidy
-go build -o jandaira-api ./cmd/api/
-```
-
-#### Opción 2 — Ejecutar directamente
-
-```bash
-go run ./cmd/api/main.go --port 8080
-```
-
-#### Opción 3 — Docker (Fullstack)
-
-Para ejecutar el proyecto completo (Backend y Frontend) vía Docker, simplemente descarga y ejecuta la imagen oficial:
-
+**Opción B: Vía Docker (Sistema Completo)**
+Ideal si quieres el Backend + Frontend ejecutándose juntos sin instalar nada en tu PC.
 ```bash
 docker pull ghcr.io/damiaoterto/jandaira:latest
 docker run -d -p 8080:8080/tcp -p 9000:9000/tcp ghcr.io/damiaoterto/jandaira:latest
 ```
 
-El panel Frontend estará disponible en `http://localhost:9000` y la API en `http://localhost:8080`.
-
-#### Opción 4 — Script de instalación automática (Linux/macOS)
-
-Detecta el sistema operativo, descarga los binarios y el frontend, y registra los servicios para iniciar con el sistema:
-
+**Opción C: Compilando desde el Código Fuente**
+Para quienes quieren modificar o contribuir al proyecto.
 ```bash
-curl -fsSL https://github.com/damiaoterto/jandaira/releases/latest/download/install.sh | sudo bash
+git clone https://github.com/damiaoterto/jandaira.git
+cd jandaira
+go mod tidy
+go run ./cmd/api/main.go --port 8080
 ```
 
-El panel estará en `http://localhost:9000` y la API en `http://localhost:8080`.
-
-#### Opción 5 — Windows
-
+**Opción D: Instalación en Windows**
 Descarga el instalador desde la [página de releases](https://github.com/damiaoterto/jandaira/releases/latest) y ejecútalo como Administrador en PowerShell:
-
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
-### Ejecutar la colmena
+### 3. Probando tu Colmena
+Después de iniciar el servidor (estará ejecutándose en el puerto 8080), puedes enviar un objetivo a la IA:
 
 ```bash
-./jandaira-api --port 8080
+curl -X POST http://localhost:8080/api/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Crea un archivo Go llamado suma.go que sume dos números", "group_id": "enjambre-alfa"}'
 ```
-
-El servidor estará disponible en `http://localhost:8080`. Monitorea eventos en tiempo real via WebSocket en `ws://localhost:8080/ws`.
-
-### Ejemplo: crear y probar un archivo Go
-
-1. Envía el objetivo via `POST /api/dispatch`:
-
-   ```bash
-   curl -X POST http://localhost:8080/api/dispatch \
-     -H "Content-Type: application/json" \
-     -d '{"goal": "Crea un archivo Go llamado suma.go que sume dos números", "group_id": "enxame-alfa"}'
-   ```
-
-2. La Reina distribuye la tarea a la pipeline de Especialistas.
-
-3. Sigue el progreso via WebSocket:
-
-   ```json
-   { "type": "agent_change", "agent": "Desarrolladora Wasm" }
-   { "type": "tool_start",   "tool": "write_file", "args": "{...}" }
-   { "type": "result",       "message": "# Informe Final\n..." }
-   ```
-
-4. Si `RequiresApproval: true`, el **modo Apicultor** se activa via WebSocket:
-
-   ```json
-   // Servidor envía:
-   { "type": "approval_request", "id": "req-1712345678901", "tool": "write_file", "args": "{...}" }
-
-   // Cliente responde:
-   { "type": "approve", "id": "req-1712345678901", "approved": true }
-   ```
-
-### Herramientas disponibles
-
-| Herramienta | Descripción |
-|---|---|
-| `list_directory` | Lista archivos y carpetas de un directorio |
-| `read_file` | Lee el contenido de un archivo |
-| `write_file` | Crea o sobreescribe un archivo |
-| `execute_code` | Ejecuta código en sandbox Wasm aislado |
-| `web_search` | Busca en internet via DuckDuckGo (respuestas directas, definiciones, resúmenes) |
-| `search_memory` | Búsqueda semántica en la memoria vectorial (BadgerDB + HNSW) |
-| `store_memory` | **Único mecanismo de persistencia permanente.** Guarda datos en el VectorEngine integrado con campos opcionales `type` y `metadata`. |
+Puedes monitorear lo que hace la IA en tiempo real a través del WebSocket: `ws://localhost:8080/ws`.
 
 ---
 
-## 🔐 Seguridad y Vault
+## ⚖️ Licencia de Uso (Explicada de Forma Simple)
 
-Cada "paso del testigo" entre Especialistas está **cifrado de extremo a extremo con AES-GCM**.
-Además, las claves y accesos son gestionados localmente usando el paquete `internal/security/vault.go`, protegiendo tu clave API de accesos por otros procesos o usuarios no autorizados.
+El **Jandaira Swarm OS** posee un modelo de licencia doble para ser justo con la comunidad y con las empresas.
+
+1. **Para la Comunidad (100% Gratis - AGPLv3):**
+   Puedes descargar, usar, modificar y distribuir Jandaira gratis. 
+   ⚠️ **La Regla:** Si usas Jandaira para crear un producto, proyecto o servicio web, **estás obligado a dejar el código fuente de tu proyecto abierto y público** para todo el mundo.
+
+2. **Para Empresas (Licencia Comercial):**
+   ¿Quieres usar Jandaira en tu empresa o crear un producto cerrado, pero **no quieres** compartir el código fuente de tu sistema? 
+   ✅ **La Solución:** Vendemos una **Licencia Comercial**. Con ella, puedes usar Jandaira en proyectos privados sin la obligación de abrir tu código. ¡Contáctanos!
 
 ---
 
-## 🪝 Webhook Engine
+## 📖 ¿Qué es Jandaira?
 
-El **Webhook Engine** permite que sistemas externos activen colmenas vía HTTP sin autenticación adicional. Cada webhook tiene un `slug` único en la URL, un `GoalTemplate` basado en `text/template` de Go y, opcionalmente, un `secret` para validación HMAC-SHA256.
+Inspirado en la abeja brasileña que trabaja en conjunto sin necesitar un líder central, nuestro sistema divide el trabajo entre varios "agentes IA":
 
-### Flujo
+- **Reina (`Queen`):** No ejecuta tareas. Ella solo organiza, administra el "néctar" (sus tokens/dinero) y garantiza la seguridad.
+- **Especialistas (`Specialists`):** Son las obreras. Cada agente tiene una función específica (ej. desarrollador, auditor) y herramientas limitadas para ejecutar su trabajo.
+- **Apicultor (¡Tú!):** El humano en control. La IA puede pedir tu aprobación antes de ejecutar acciones peligrosas.
 
-```
-Sistema externo (GitHub, Prometheus, Slack, CI/CD…)
-     │  POST /api/webhooks/monitor-deploy
-     │  Body: {"project_name": "Jandaira", "env": "prod"}
-     ▼
-┌─────────────────────────────────────────────┐
-│              Webhook Engine                  │
-│                                             │
-│  1. Localiza webhook por slug               │
-│  2. Valida HMAC-SHA256 (si secret definido) │
-│  3. Renderiza GoalTemplate con el payload:  │
-│     "Analiza el deploy de Jandaira en prod" │
-│  4. Llama a Queen.DispatchWorkflow          │
-└─────────────────────────────────────────────┘
-     │
-     ▼
-Reina → AssembleSwarm / BuildSpecialists → Resultado vía WebSocket
-```
+---
 
-### GoalTemplate
+## 🏗️ Cómo Funciona la Arquitectura
 
-Usa `text/template` nativo de Go. Cualquier campo del payload JSON es referenciable con `{{.campo}}`:
+### El Flujo Principal
 
-```
-"Analiza el deploy del proyecto {{.project_name}} en el entorno {{.env}}"
-"Alerta: {{.alertname}} — instancia {{.instance}} ({{.severity}})"
-"PR #{{.number}} en {{.repository.name}}: {{.title}}"
-```
+```mermaid
+sequenceDiagram
+    participant C as 👤 Cliente
+    participant Q as 👑 Queen (API)
+    participant E1 as 🐝 Especialista 1
+    participant E2 as 🐝 Especialista 2
+    participant H as 👨‍🌾 Apicultor
+    participant BD as 🍯 VectorEngine
 
-### Validación HMAC-SHA256
-
-Si `secret` está configurado, el llamador debe incluir el header:
-
-```
-X-Hub-Signature-256: sha256=<hex-encoded-HMAC-SHA256-del-body>
+    C->>Q: Envía Objetivo (POST /api/dispatch)
+    Q->>Q: Valida Política y Néctar (Tokens)
+    Q->>E1: Pasa el relevo (Inicia pipeline)
+    E1->>E1: Ejecuta Tarea (ej. escribe código)
+    E1-->>E2: Envía resultado (Payload Encriptado AES-GCM)
+    E2->>E2: Ejecuta Tarea (ej. audita código)
+    E2->>H: ¿Pide aprobación? (Approval Request)
+    H-->>E2: Humano aprueba acción
+    E2->>BD: Guarda en Base Vectorial
+    Q-->>C: Devuelve Resultado Final
 ```
 
-Compatible con el estándar GitHub Webhooks. Payloads con firma inválida reciben `401 Unauthorized`.
+### Cómo Funciona la Memoria (Corto y Largo Plazo)
 
-### Outbound Webhooks (Webhooks de Salida)
+Para no gastar muchos tokens y mantener a la IA inteligente a lo largo del tiempo, dividimos la memoria en dos:
 
-Jandaira también soporta **Outbound Webhooks**, permitiendo que la colmena envíe automáticamente el resultado de su procesamiento a sistemas externos (Discord, Slack, etc.) tan pronto como la misión se complete. El formato de la petición es personalizable a través de `BodyTemplate`.
-
-El template tiene funciones (filtros) integradas esenciales para enviar payloads JSON estructurados:
-- `json`: Escapa el texto con seguridad (saltos de línea, comillas) dentro del JSON.
-- `truncate <límite>`: Recorta el tamaño máximo de la cadena, evitando errores en APIs como Discord (límite de 2000 caracteres).
-- `normalize`: Limpia el texto de la IA, eliminando metadatos de orquestación, logs internos y volcados de memoria, entregando solo el informe final del último agente.
-
-**Ejemplo de payload de salida:**
-```json
-{
-  "content": {{.result | normalize | truncate 1900 | json}}
-}
+```mermaid
+graph TD
+    M1[💬 Nueva Mensaje] --> STM[🧠 Memoria a Corto Plazo RAM]
+    STM -->|¿Llegó al límite?| COMPACT[LLM hace un Resumen]
+    COMPACT --> LTM[(🍯 Base Vectorial Largo Plazo)]
+    
+    style STM fill:#f9f,stroke:#333,stroke-width:2px
+    style LTM fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
-### Ejemplo completo
+### Grafo de Conocimiento (IA aprendiendo sola)
 
-```bash
-# Crear webhook
-curl -X POST http://localhost:8080/api/webhooks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Monitor Deploy",
-    "slug": "monitor-deploy",
-    "colmeia_id": "<id-de-colmena>",
-    "secret": "mi-secreto",
-    "goal_template": "Analiza el deploy del proyecto {{.project_name}} en el entorno {{.env}}",
-    "active": true
-  }'
+¡La Reina aprende de misiones pasadas! Si un agente fue bueno "analizando ventas", lo llamará nuevamente en el futuro.
 
-# Disparar (con firma HMAC)
-BODY='{"project_name":"Jandaira","env":"prod"}'
-SIG="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "mi-secreto" | awk '{print $2}')"
-
-curl -X POST http://localhost:8080/api/webhooks/monitor-deploy \
-  -H "Content-Type: application/json" \
-  -H "X-Hub-Signature-256: $SIG" \
-  -d "$BODY"
+```mermaid
+graph LR
+    O[Objetivo: "Analizar Ventas"] --> R{Reina consulta Grafo}
+    R -->|Encuentra Perfil| A1((Analista de Ventas))
+    A1 -->|Experto en| T[Tema: "datos de ventas"]
+    R -->|Arma equipo según experiencia| E[Enjambre Final]
 ```
 
 ---
 
-## 🌐 API Reference
+## 🪝 Webhook Engine (Integraciones fáciles)
 
-### Rutas REST
+Puedes conectar Jandaira a GitHub, Slack, etc. La IA se activa automáticamente cuando ocurre un evento.
 
-#### Configuración y Despacho
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| `POST` | `/api/setup` | Configura la colmena en la primera ejecución |
-| `POST` | `/api/dispatch` | Envía un objetivo al enjambre (sin estado) |
-| `GET` | `/api/tools` | Lista todas las herramientas disponibles |
-| `GET` | `/ws` | Abre una conexión WebSocket para eventos en tiempo real |
-
-#### Sesiones
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| `GET` | `/api/sessions` | Lista todas las sesiones |
-| `POST` | `/api/sessions` | Crea una nueva sesión |
-| `GET` | `/api/sessions/:id` | Obtiene sesión con agentes |
-| `DELETE` | `/api/sessions/:id` | Elimina sesión (cascada) |
-| `POST` | `/api/sessions/:id/dispatch` | Despacha workflow para la sesión |
-| `GET` | `/api/sessions/:id/agents` | Lista agentes de la sesión |
-| `POST` | `/api/sessions/:id/documents` | Sube e indexa un documento |
-
-#### Colmenas Persistentes (Colmeias)
-
-Las colmenas son entidades persistentes y con nombre. A diferencia de las sesiones, una colmena puede recibir **múltiples mensajes a lo largo del tiempo**, manteniendo el historial de conversaciones como contexto. Los agentes pueden ser **predefinidos por el usuario** (con prompts y herramientas personalizables, solo cuando `queen_managed=false`) o **ensamblados automáticamente por la Reina** (`queen_managed=true`). Intentar agregar agentes predefinidos a una colmena `queen_managed=true` devuelve `409 Conflict`.
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| `GET` | `/api/colmeias` | Lista todas las colmenas |
-| `POST` | `/api/colmeias` | Crea colmena (`queen_managed: true/false`) |
-| `GET` | `/api/colmeias/:id` | Obtiene colmena con agentes |
-| `PUT` | `/api/colmeias/:id` | Actualiza colmena |
-| `DELETE` | `/api/colmeias/:id` | Elimina colmena (cascada) |
-| `POST` | `/api/colmeias/:id/dispatch` | Envía mensaje a la colmena |
-| `GET` | `/api/colmeias/:id/historico` | Lista historial de conversaciones |
-| `GET` | `/api/colmeias/:id/agentes` | Lista agentes de la colmena |
-| `POST` | `/api/colmeias/:id/agentes` | Agrega agente predefinido (`queen_managed=false` requerido) |
-| `GET` | `/api/colmeias/:id/agentes/:agentId` | Obtiene agente por ID |
-| `PUT` | `/api/colmeias/:id/agentes/:agentId` | Edita nombre, prompt y herramientas |
-| `DELETE` | `/api/colmeias/:id/agentes/:agentId` | Elimina agente de la colmena |
-
-#### Webhooks
-
-| Método   | Ruta                    | Descripción                                               |
-| -------- | ----------------------- | --------------------------------------------------------- |
-| `POST`   | `/api/webhooks/:slug`   | **Público** — activa el workflow de la colmena asociada   |
-| `GET`    | `/api/webhooks`         | Lista todos los webhooks                                  |
-| `POST`   | `/api/webhooks`         | Crea webhook                                              |
-| `GET`    | `/api/webhooks/:id`     | Obtiene webhook por ID                                    |
-| `PUT`    | `/api/webhooks/:id`     | Actualiza webhook                                         |
-| `DELETE` | `/api/webhooks/:id`     | Elimina webhook                                           |
-
-**Ejemplo — crear colmena con agentes definidos por el usuario:**
-
-```bash
-# 1. Crear colmena
-curl -X POST http://localhost:8080/api/colmeias \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Colmena de Investigación", "queen_managed": false}'
-
-# 2. Agregar agente con prompt personalizado
-curl -X POST http://localhost:8080/api/colmeias/{id}/agentes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Investigador Web",
-    "system_prompt": "Eres un especialista en investigación. Usa web_search para recopilar información actualizada.",
-    "allowed_tools": ["web_search", "search_memory", "store_memory"]
-  }'
-
-# 3. Enviar primer mensaje
-curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
-  -H "Content-Type: application/json" \
-  -d '{"goal": "Busca las principales noticias sobre IA de esta semana"}'
-
-# 4. Enviar seguimiento (historial anterior inyectado automáticamente como contexto)
-curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
-  -H "Content-Type: application/json" \
-  -d '{"goal": "Con base en la investigación anterior, escribe un resumen ejecutivo"}'
-```
-
-### Eventos WebSocket (`/ws`)
-
-#### Servidor → Frontend
-
-| `type` | Cuándo se dispara | Campos relevantes |
-|---|---|---|
-| `status` | Mensajes de progreso de la Reina | `message` |
-| `agent_change` | Un especialista toma el control | `agent` |
-| `tool_start` | Una herramienta está a punto de ejecutarse | `agent`, `tool`, `args` |
-| `approval_request` | La IA quiere usar una herramienta bloqueada | `id`, `tool`, `args` |
-| `result` | Informe final del flujo | `message` |
-| `error` | Fallo o timeout | `message` |
-
-#### Frontend → Servidor
-
-```json
-{ "type": "approve", "id": "req-1712345678901", "approved": true }
-{ "type": "approve", "id": "req-1712345678901", "approved": false }
+```mermaid
+graph LR
+    GH[GitHub / CI-CD] -->|POST Payload JSON| W[Webhook Engine]
+    W -->|Valida Contraseña y Transforma JSON| Q[👑 Reina]
+    Q -->|Ejecuta la Misión| E[🐝 Enjambre]
+    E -->|Outbound Webhook| D[Discord / Slack]
 ```
 
 ---
 
-## ⚖️ Licencia y Uso Comercial (Licencia Dual)
+## ⚡ ¿Por qué elegir Go en lugar de Python?
 
-**Jandaira Swarm OS** se distribuye bajo un modelo de licencia dual.
-
-* **Uso de Código Abierto (AGPLv3):** El código fuente está disponible gratuitamente bajo la licencia [GNU Affero General Public License v3.0](../LICENCE).
-* **Uso Comercial Corporativo:** Para empresas que deseen integrar Jandaira en productos propietarios sin obligación de abrir su código fuente, ofrecemos una **Licencia Comercial**.
-
----
-
-## 🤝 Contribuyendo
-
-¡Pull Requests son bienvenidos! Abre un caso (issue) describiendo la funcionalidad antes de iniciar grandes cambios.
+| Comparación                 | NanoClaw (Python)         | Jandaira (Go) 🏆                       |
+| --------------------------- | ------------------------- | -------------------------------------- |
+| **Rendimiento**             | Pesado, exige hilos       | Súper ligero con Goroutines nativas    |
+| **Instalación**             | Requiere dependencias/Docker| ¡Un solo archivo ejecutable!           |
+| **Seguridad entre Agentes** | No existe                 | Encriptación nativa AES-GCM            |
+| **Base de Datos IA**        | Requiere serv. externos   | ¡Base Vectorial (HNSW) incorporada!    |
+| **Aprobación Humana**       | Arreglos externos         | Nativo vía WebSocket en tiempo real    |
 
 ---
 
-_Jandaira: Autonomía, Seguridad y la Fuerza del Enjambre._ 🐝
+## 🌐 Referencia Rápida de la API
+
+| Acción | Ruta HTTP | Descripción |
+| --- | --- | --- |
+| **Despachar Misión** | `POST /api/dispatch` | Envía un trabajo a la colmena. |
+| **Listar Herramientas** | `GET /api/tools` | Mira lo que las IAs pueden hacer. |
+| **Tiempo Real** | `GET /ws` | WebSocket para seguir a las IAs y aprobar acciones. |
+| **Webhooks** | `POST /api/webhooks/:slug` | Dispara un evento externo. |
+
+---
+
+## 🤝 Contribuir
+
+¡Los Pull Requests son muy bienvenidos! Por favor, abre un issue describiendo lo que deseas mejorar antes de empezar a programar.
+
+_Jandaira: Autonomía, Seguridad y la Fuerza del Enjambre Brasileño._ 🐝
