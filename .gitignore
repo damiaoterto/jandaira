@@ -28,5 +28,6 @@ go.work
 skills-lock.json
 
 workspace/
+dist/
 
 jandaira-frontend-*.tgz
