@@ -1,9 +1,9 @@
 name: Docker Build and Push (with cache)
 
 on:
-  push:
-    branches: [main]
-    tags: ["v*.*.*"]
+  release:
+    types: [published]
+  pull_request: null
 
 env:
   REGISTRY: ghcr.io
