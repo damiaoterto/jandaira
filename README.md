@@ -132,9 +132,9 @@ A Rainha aprende com as missões passadas! Se um agente foi bem ao "analisar ven
 
 ```mermaid
 graph LR
-    O[Objetivo: "Analisar Vendas"] --> R{Rainha consulta Grafo}
+    O[Objetivo: Analisar Vendas] --> R{Rainha consulta Grafo}
     R -->|Acha Perfil| A1((Analista de Vendas))
-    A1 -->|Expert em| T[Tópico: "dados de vendas"]
+    A1 -->|Expert em| T[Tópico: dados de vendas]
     R -->|Monta equipe com base na experiência| E[Enxame Final]
 ```
 

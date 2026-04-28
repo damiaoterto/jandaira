@@ -132,9 +132,9 @@ graph TD
 
 ```mermaid
 graph LR
-    O[Objetivo: "Analizar Ventas"] --> R{Reina consulta Grafo}
+    O[Objetivo: Analizar Ventas] --> R{Reina consulta Grafo}
     R -->|Encuentra Perfil| A1((Analista de Ventas))
-    A1 -->|Experto en| T[Tema: "datos de ventas"]
+    A1 -->|Experto en| T[Tema: datos de ventas]
     R -->|Arma equipo según experiencia| E[Enjambre Final]
 ```
 

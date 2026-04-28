@@ -132,9 +132,9 @@ The Queen learns from past missions! If an agent did well at "analyzing sales," 
 
 ```mermaid
 graph LR
-    O[Goal: "Analyze Sales"] --> R{Queen checks Graph}
+    O[Goal: Analyze Sales] --> R{Queen checks Graph}
     R -->|Finds Profile| A1((Sales Analyst))
-    A1 -->|Expert in| T[Topic: "sales data"]
+    A1 -->|Expert in| T[Topic: sales data]
     R -->|Builds team based on experience| E[Final Swarm]
 ```
 
