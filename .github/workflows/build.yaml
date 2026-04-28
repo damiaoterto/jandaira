@@ -116,24 +116,95 @@ jobs:
           wait
           cp -r _frontend/dist/. dist/dist/
 
-      # ── Linux ─────────────────────────────────────────────────────────────
-      - name: Create Linux scripts
+      # ── Shared: background control script (Linux + macOS) ────────────────
+      - name: Create background control script
+        if: matrix.goos != 'windows'
+        shell: bash
+        run: |
+          cat > dist/jandaira.sh << 'CTRL'
+          #!/bin/bash
+          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          PID_DIR="$HOME/.jandaira"
+          mkdir -p "$PID_DIR"
+
+          start() {
+            if [ -f "$PID_DIR/api.pid" ] && kill -0 "$(cat "$PID_DIR/api.pid")" 2>/dev/null; then
+              echo "Already running"; return 1
+            fi
+            "$SCRIPT_DIR/jandaira-api"    > "$PID_DIR/api.log"    2>&1 &; echo $! > "$PID_DIR/api.pid"
+            "$SCRIPT_DIR/jandaira-static" > "$PID_DIR/static.log" 2>&1 &; echo $! > "$PID_DIR/static.pid"
+            echo "Started — api($(cat "$PID_DIR/api.pid")) static($(cat "$PID_DIR/static.pid"))"
+          }
+
+          stop() {
+            for svc in api static; do
+              f="$PID_DIR/$svc.pid"
+              if [ -f "$f" ]; then kill "$(cat "$f")" 2>/dev/null || true; rm -f "$f"; fi
+            done
+            echo "Stopped"
+          }
+
+          status() {
+            for svc in api static; do
+              f="$PID_DIR/$svc.pid"
+              if [ -f "$f" ] && kill -0 "$(cat "$f")" 2>/dev/null; then
+                echo "$svc: running (PID $(cat "$f"))"
+              else
+                echo "$svc: stopped"
+              fi
+            done
+          }
+
+          case "$1" in
+            start)   start  ;;
+            stop)    stop   ;;
+            restart) stop; start ;;
+            status)  status ;;
+            *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+          esac
+          CTRL
+
+          chmod +x dist/jandaira.sh
+
+      # ── Linux: universal install.sh (detects OS, downloads + installs) ───
+      - name: Create universal install script
         if: matrix.goos == 'linux'
         run: |
-          # install.sh — copies files + registers systemd services (needs root)
-          cat > dist/install.sh << 'INSTALL'
+          cat > install.sh << 'INSTALLER'
           #!/bin/bash
-          set -e
-          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          INSTALL_DIR="/opt/jandaira"
+          set -euo pipefail
+
+          REPO="damiaoterto/jandaira"
+          ARCH="amd64"
+
+          OS="$(uname -s)"
+          case "$OS" in
+            Linux)  GOOS="linux";  INSTALL_DIR="/opt/jandaira" ;;
+            Darwin) GOOS="darwin"; INSTALL_DIR="/usr/local/jandaira" ;;
+            *) echo "Unsupported OS: $OS" >&2; exit 1 ;;
+          esac
+
+          VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+            | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+          [ -z "$VERSION" ] && { echo "Failed to resolve latest version" >&2; exit 1; }
+
+          ZIP_URL="https://github.com/${REPO}/releases/download/${VERSION}/jandaira-${GOOS}-${ARCH}.zip"
+          echo "Installing Jandaira ${VERSION} (${GOOS}/${ARCH})..."
+
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+
+          curl -fsSL "$ZIP_URL" -o "$TMP/jandaira.zip"
+          unzip -q "$TMP/jandaira.zip" -d "$TMP/pkg"
 
           mkdir -p "$INSTALL_DIR/dist"
-          cp "$SCRIPT_DIR/jandaira-api"    "$INSTALL_DIR/"
-          cp "$SCRIPT_DIR/jandaira-static" "$INSTALL_DIR/"
-          cp -r "$SCRIPT_DIR/dist/."       "$INSTALL_DIR/dist/"
+          cp "$TMP/pkg/jandaira-api"    "$INSTALL_DIR/"
+          cp "$TMP/pkg/jandaira-static" "$INSTALL_DIR/"
+          cp -r "$TMP/pkg/dist/."       "$INSTALL_DIR/dist/"
           chmod +x "$INSTALL_DIR/jandaira-api" "$INSTALL_DIR/jandaira-static"
 
-          cat > /etc/systemd/system/jandaira-api.service << 'SVC'
+          if [ "$GOOS" = "linux" ]; then
+            cat > /etc/systemd/system/jandaira-api.service << 'EOF'
           [Unit]
           Description=Jandaira API
           After=network.target
@@ -147,9 +218,9 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          SVC
+          EOF
 
-          cat > /etc/systemd/system/jandaira-static.service << 'SVC'
+            cat > /etc/systemd/system/jandaira-static.service << 'EOF'
           [Unit]
           Description=Jandaira Static Server
           After=network.target
@@ -163,155 +234,48 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          SVC
+          EOF
 
-          systemctl daemon-reload
-          systemctl enable --now jandaira-api jandaira-static
-          echo "Installed! Services enabled and started."
-          INSTALL
+            systemctl daemon-reload
+            systemctl enable --now jandaira-api jandaira-static
 
-          # jandaira.sh — start/stop in background without root or service
-          cat > dist/jandaira.sh << 'CTRL'
-          #!/bin/bash
-          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          PID_DIR="$HOME/.jandaira"
-          mkdir -p "$PID_DIR"
+          elif [ "$GOOS" = "darwin" ]; then
+            PLIST_DIR="/Library/LaunchDaemons"
 
-          start() {
-            if [ -f "$PID_DIR/api.pid" ] && kill -0 "$(cat "$PID_DIR/api.pid")" 2>/dev/null; then
-              echo "Already running"; return 1
-            fi
-            "$SCRIPT_DIR/jandaira-api"    > "$PID_DIR/api.log"    2>&1 &; echo $! > "$PID_DIR/api.pid"
-            "$SCRIPT_DIR/jandaira-static" > "$PID_DIR/static.log" 2>&1 &; echo $! > "$PID_DIR/static.pid"
-            echo "Started — api($(cat "$PID_DIR/api.pid")) static($(cat "$PID_DIR/static.pid"))"
-          }
-
-          stop() {
-            for svc in api static; do
-              f="$PID_DIR/$svc.pid"
-              if [ -f "$f" ]; then kill "$(cat "$f")" 2>/dev/null || true; rm -f "$f"; fi
-            done
-            echo "Stopped"
-          }
-
-          status() {
-            for svc in api static; do
-              f="$PID_DIR/$svc.pid"
-              if [ -f "$f" ] && kill -0 "$(cat "$f")" 2>/dev/null; then
-                echo "$svc: running (PID $(cat "$f"))"
-              else
-                echo "$svc: stopped"
-              fi
-            done
-          }
-
-          case "$1" in
-            start)   start  ;;
-            stop)    stop   ;;
-            restart) stop; start ;;
-            status)  status ;;
-            *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
-          esac
-          CTRL
-
-          chmod +x dist/install.sh dist/jandaira.sh
-
-      # ── macOS ─────────────────────────────────────────────────────────────
-      - name: Create macOS scripts
-        if: matrix.goos == 'darwin'
-        run: |
-          # install.sh — copies files + registers launchd daemons (needs root)
-          cat > dist/install.sh << 'INSTALL'
-          #!/bin/bash
-          set -e
-          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          INSTALL_DIR="/usr/local/jandaira"
-          PLIST_DIR="/Library/LaunchDaemons"
-
-          mkdir -p "$INSTALL_DIR/dist"
-          cp "$SCRIPT_DIR/jandaira-api"    "$INSTALL_DIR/"
-          cp "$SCRIPT_DIR/jandaira-static" "$INSTALL_DIR/"
-          cp -r "$SCRIPT_DIR/dist/."       "$INSTALL_DIR/dist/"
-          chmod +x "$INSTALL_DIR/jandaira-api" "$INSTALL_DIR/jandaira-static"
-
-          cat > "$PLIST_DIR/io.jandaira.api.plist" << 'PLIST'
+            cat > "$PLIST_DIR/io.jandaira.api.plist" << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
               <key>Label</key><string>io.jandaira.api</string>
               <key>ProgramArguments</key><array><string>/usr/local/jandaira/jandaira-api</string></array>
-              <key>RunAtLoad</key><true/>
-              <key>KeepAlive</key><true/>
+              <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
               <key>WorkingDirectory</key><string>/usr/local/jandaira</string>
               <key>StandardOutPath</key><string>/var/log/jandaira-api.log</string>
               <key>StandardErrorPath</key><string>/var/log/jandaira-api.err</string>
           </dict></plist>
-          PLIST
+          EOF
 
-          cat > "$PLIST_DIR/io.jandaira.static.plist" << 'PLIST'
+            cat > "$PLIST_DIR/io.jandaira.static.plist" << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
               <key>Label</key><string>io.jandaira.static</string>
               <key>ProgramArguments</key><array><string>/usr/local/jandaira/jandaira-static</string></array>
-              <key>RunAtLoad</key><true/>
-              <key>KeepAlive</key><true/>
+              <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
               <key>WorkingDirectory</key><string>/usr/local/jandaira</string>
               <key>StandardOutPath</key><string>/var/log/jandaira-static.log</string>
               <key>StandardErrorPath</key><string>/var/log/jandaira-static.err</string>
           </dict></plist>
-          PLIST
+          EOF
 
-          launchctl load -w "$PLIST_DIR/io.jandaira.api.plist"
-          launchctl load -w "$PLIST_DIR/io.jandaira.static.plist"
-          echo "Installed! Daemons started and enabled on boot."
-          INSTALL
+            launchctl load -w "$PLIST_DIR/io.jandaira.api.plist"
+            launchctl load -w "$PLIST_DIR/io.jandaira.static.plist"
+          fi
 
-          # jandaira.sh — start/stop in background without root or service
-          cat > dist/jandaira.sh << 'CTRL'
-          #!/bin/bash
-          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          PID_DIR="$HOME/.jandaira"
-          mkdir -p "$PID_DIR"
+          echo "Jandaira ${VERSION} installed successfully!"
+          INSTALLER
 
-          start() {
-            if [ -f "$PID_DIR/api.pid" ] && kill -0 "$(cat "$PID_DIR/api.pid")" 2>/dev/null; then
-              echo "Already running"; return 1
-            fi
-            "$SCRIPT_DIR/jandaira-api"    > "$PID_DIR/api.log"    2>&1 &; echo $! > "$PID_DIR/api.pid"
-            "$SCRIPT_DIR/jandaira-static" > "$PID_DIR/static.log" 2>&1 &; echo $! > "$PID_DIR/static.pid"
-            echo "Started — api($(cat "$PID_DIR/api.pid")) static($(cat "$PID_DIR/static.pid"))"
-          }
-
-          stop() {
-            for svc in api static; do
-              f="$PID_DIR/$svc.pid"
-              if [ -f "$f" ]; then kill "$(cat "$f")" 2>/dev/null || true; rm -f "$f"; fi
-            done
-            echo "Stopped"
-          }
-
-          status() {
-            for svc in api static; do
-              f="$PID_DIR/$svc.pid"
-              if [ -f "$f" ] && kill -0 "$(cat "$f")" 2>/dev/null; then
-                echo "$svc: running (PID $(cat "$f"))"
-              else
-                echo "$svc: stopped"
-              fi
-            done
-          }
-
-          case "$1" in
-            start)   start  ;;
-            stop)    stop   ;;
-            restart) stop; start ;;
-            status)  status ;;
-            *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
-          esac
-          CTRL
-
-          chmod +x dist/install.sh dist/jandaira.sh
+          chmod +x install.sh
 
       # ── Windows ───────────────────────────────────────────────────────────
       - name: Create Windows installer
@@ -352,15 +316,10 @@ jobs:
           Write-Host "Installed! API and static server running as Windows services."
           '@ | Out-File -FilePath dist\install.ps1 -Encoding utf8
 
-      # ── Release install script ────────────────────────────────────────────
       - name: Export install script as release asset
+        if: matrix.goos == 'windows'
         shell: bash
-        run: |
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            cp dist/install.ps1 install-windows.ps1
-          else
-            cp dist/install.sh install-${{ matrix.goos }}.sh
-          fi
+        run: cp dist/install.ps1 install-windows.ps1
 
       # ── Packaging ─────────────────────────────────────────────────────────
       - name: Package Linux zip
@@ -370,7 +329,11 @@ jobs:
       - name: Package Linux deb
         if: matrix.goos == 'linux'
         run: |
-          VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.1")
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.1"
+          fi
           DEB_ROOT="pkg-deb"
 
           mkdir -p "$DEB_ROOT/DEBIAN"
@@ -455,18 +418,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jandaira-${{ matrix.goos }}-amd64
+          if-no-files-found: ignore
           path: |
             jandaira-*.zip
             jandaira-*.deb
-            install-*.sh
-            install-*.ps1
+            install.sh
+            install-windows.ps1
 
       - name: Upload to release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: |
             jandaira-*.zip
             jandaira-*.deb
-            install-*.sh
-            install-*.ps1
+            install.sh
+            install-windows.ps1
