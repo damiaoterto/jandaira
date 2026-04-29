@@ -9,14 +9,20 @@ import (
 )
 
 const openRouterBaseURL = "https://openrouter.ai/api/v1/chat/completions"
+const openRouterEmbedURL = "https://openrouter.ai/api/v1/embeddings"
+
+// DefaultOpenRouterEmbeddingModel is used when EmbeddingModel is not set.
+// Any model from https://openrouter.ai/models?output_modalities=embeddings can be used.
+const DefaultOpenRouterEmbeddingModel = "openai/text-embedding-3-small"
 
 // OpenRouterBrain implements Brain using the OpenRouter API, which exposes an
 // OpenAI-compatible interface that routes requests to many upstream LLMs.
 type OpenRouterBrain struct {
-	APIKey    string
-	Model     string
-	MaxTokensFn func() int // nil = let upstream use its default
-	Client    *http.Client
+	APIKey         string
+	Model          string
+	EmbeddingModel string     // embedding model slug; defaults to DefaultOpenRouterEmbeddingModel
+	MaxTokensFn    func() int // nil = let upstream use its default
+	Client         *http.Client
 }
 
 // NewOpenRouterBrain creates a new OpenRouterBrain with a sensible HTTP timeout.
@@ -30,10 +36,42 @@ func NewOpenRouterBrain(apiKey, model string) *OpenRouterBrain {
 
 func (b *OpenRouterBrain) GetProviderName() string { return "openrouter" }
 
-// Embed is not supported by OpenRouter. Memory features are disabled when
-// using this provider.
-func (b *OpenRouterBrain) Embed(_ context.Context, _ string) ([]float32, error) {
-	return nil, fmt.Errorf("openrouter provider does not support embeddings; memory features are disabled")
+// embeddingModel returns the configured embedding model or the default.
+func (b *OpenRouterBrain) embeddingModel() string {
+	if b.EmbeddingModel != "" {
+		return b.EmbeddingModel
+	}
+	return DefaultOpenRouterEmbeddingModel
+}
+
+// Embed generates a vector embedding via the OpenRouter embeddings API.
+// The model used is EmbeddingModel (defaults to DefaultOpenRouterEmbeddingModel).
+// Any model listed at https://openrouter.ai/models?output_modalities=embeddings is accepted.
+func (b *OpenRouterBrain) Embed(ctx context.Context, text string) ([]float32, error) {
+	payload := map[string]interface{}{
+		"model": b.embeddingModel(),
+		"input": text,
+	}
+	body, status, err := doPost(ctx, b.Client, openRouterEmbedURL, b.APIKey, payload)
+	if err != nil {
+		return nil, fmt.Errorf("openrouter embed request: %w", err)
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("openrouter embeddings API error %d: %s", status, string(body))
+	}
+
+	var result struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("openrouter embed decode: %w", err)
+	}
+	if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
+		return nil, fmt.Errorf("openrouter embeddings API returned empty embedding")
+	}
+	return result.Data[0].Embedding, nil
 }
 
 func (b *OpenRouterBrain) Chat(ctx context.Context, messages []Message, tools []ToolDefinition) (string, []ToolCall, ConsumptionReport, error) {
