@@ -131,8 +131,10 @@ jobs:
             if [ -f "$PID_DIR/api.pid" ] && kill -0 "$(cat "$PID_DIR/api.pid")" 2>/dev/null; then
               echo "Already running"; return 1
             fi
-            "$SCRIPT_DIR/jandaira-api"    > "$PID_DIR/api.log"    2>&1 &; echo $! > "$PID_DIR/api.pid"
-            "$SCRIPT_DIR/jandaira-static" > "$PID_DIR/static.log" 2>&1 &; echo $! > "$PID_DIR/static.pid"
+            "$SCRIPT_DIR/jandaira-api" > "$PID_DIR/api.log" 2>&1 &
+            echo $! > "$PID_DIR/api.pid"
+            "$SCRIPT_DIR/jandaira-static" > "$PID_DIR/static.log" 2>&1 &
+            echo $! > "$PID_DIR/static.pid"
             echo "Started — api($(cat "$PID_DIR/api.pid")) static($(cat "$PID_DIR/static.pid"))"
           }
 

@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- **`jandaira-static` reverse proxy** (`cmd/static/main.go`): static server only served files; API calls from the frontend (`/api/*`, `/ws`) returned 404 on Linux/macOS native installs. Added `httputil.ReverseProxy` that forwards `/api/*` and `/ws` to `http://localhost:8080`, with SPA fallback to `index.html` for all other routes.
+- **`jandaira.sh` syntax error** (`.github/workflows/build.yaml`): `&;` is invalid bash — the semicolon after `&` caused a parse error so both `jandaira-api` and `jandaira-static` silently failed to start on `./jandaira.sh start`. Split each backgrounded command and PID capture onto separate lines.
+
+### Changed
+
+- **Windows install command updated** (`README.md`, `docs/README.en.md`, `docs/README.es.md`, `docs/README.ru.md`, `docs/README.zh.md`): PowerShell snippet changed from `.\install-windows.ps1` to `powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1` so users without a pre-configured execution policy can run the installer without extra steps.
+
 ### Added
 
 - **OpenRouter provider** (`internal/brain/open_router.go`, `internal/api/setup_handler.go`): new `OpenRouterBrain` implements `Brain` and `StructuredBrain`, routing requests to any model available on openrouter.ai via their OpenAI-compatible API. `Chat` supports tool calling; `ChatJSON` uses `response_format: json_schema` for structured outputs; `Embed` returns an informative error (same policy as Anthropic). Default model `openai/gpt-4o-mini`. `POST /api/setup` with `"provider": "openrouter"` stores the API key as `OPENROUTER_API_KEY` in the vault and wires the brain to the Queen. 90 s HTTP timeout (vs 60 s for OpenAI) to absorb upstream routing latency. Transient-network retry reuses `httpDoWithRetry` from `open_ai.go`.
