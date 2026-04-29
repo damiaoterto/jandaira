@@ -190,8 +190,8 @@ jobs:
             *) echo "Unsupported OS: $OS" >&2; exit 1 ;;
           esac
 
-          VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+          VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+            "https://github.com/${REPO}/releases/latest" | sed 's|.*/||')"
           [ -z "$VERSION" ] && { echo "Failed to resolve latest version" >&2; exit 1; }
 
           ZIP_URL="https://github.com/${REPO}/releases/download/${VERSION}/jandaira-${GOOS}-${ARCH}.zip"
