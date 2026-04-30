@@ -82,7 +82,7 @@ func (b *GroqBrain) Chat(ctx context.Context, messages []Message, tools []ToolDe
 		payload["tool_choice"] = "auto"
 	}
 
-	body, status, err := doPostWithFallback(ctx, b.Client, groqBaseURL, b.APIKey, payload)
+	body, status, err := doPostWithFallback(ctx, b.Client, groqBaseURL, b.APIKey, payload, nil)
 	if err != nil {
 		return "", nil, ConsumptionReport{}, fmt.Errorf("groq chat request: %w", err)
 	}
@@ -153,7 +153,7 @@ func (b *GroqBrain) ChatJSON(ctx context.Context, messages []Message, schema map
 		}
 	}
 
-	body, status, err := doPostWithFallback(ctx, b.Client, groqBaseURL, b.APIKey, payload)
+	body, status, err := doPostWithFallback(ctx, b.Client, groqBaseURL, b.APIKey, payload, nil)
 	if err != nil {
 		return "", ConsumptionReport{}, fmt.Errorf("groq json chat request: %w", err)
 	}

@@ -11,6 +11,12 @@ import (
 const openRouterBaseURL = "https://openrouter.ai/api/v1/chat/completions"
 const openRouterEmbedURL = "https://openrouter.ai/api/v1/embeddings"
 
+var openRouterAttributionHeaders = map[string]string{
+	"HTTP-Referer":            "https://github.com/damiaoterto/jandaira",
+	"X-OpenRouter-Title":     "Jandaira",
+	"X-OpenRouter-Categories": "cli-agent,cloud-agent",
+}
+
 // DefaultOpenRouterEmbeddingModel is used when EmbeddingModel is not set.
 // Any model from https://openrouter.ai/models?output_modalities=embeddings can be used.
 const DefaultOpenRouterEmbeddingModel = "openai/text-embedding-3-small"
@@ -52,7 +58,7 @@ func (b *OpenRouterBrain) Embed(ctx context.Context, text string) ([]float32, er
 		"model": b.embeddingModel(),
 		"input": text,
 	}
-	body, status, err := doPost(ctx, b.Client, openRouterEmbedURL, b.APIKey, payload)
+	body, status, err := doPost(ctx, b.Client, openRouterEmbedURL, b.APIKey, payload, openRouterAttributionHeaders)
 	if err != nil {
 		return nil, fmt.Errorf("openrouter embed request: %w", err)
 	}
@@ -120,7 +126,7 @@ func (b *OpenRouterBrain) Chat(ctx context.Context, messages []Message, tools []
 		payload["tool_choice"] = "auto"
 	}
 
-	body, status, err := doPostWithFallback(ctx, b.Client, openRouterBaseURL, b.APIKey, payload)
+	body, status, err := doPostWithFallback(ctx, b.Client, openRouterBaseURL, b.APIKey, payload, openRouterAttributionHeaders)
 	if err != nil {
 		return "", nil, ConsumptionReport{}, fmt.Errorf("openrouter chat request: %w", err)
 	}
@@ -191,7 +197,7 @@ func (b *OpenRouterBrain) ChatJSON(ctx context.Context, messages []Message, sche
 		}
 	}
 
-	body, status, err := doPostWithFallback(ctx, b.Client, openRouterBaseURL, b.APIKey, payload)
+	body, status, err := doPostWithFallback(ctx, b.Client, openRouterBaseURL, b.APIKey, payload, openRouterAttributionHeaders)
 	if err != nil {
 		return "", ConsumptionReport{}, fmt.Errorf("openrouter json chat request: %w", err)
 	}
