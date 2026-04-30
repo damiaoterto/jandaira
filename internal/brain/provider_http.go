@@ -10,8 +10,9 @@ import (
 )
 
 // doPost marshals payload and POSTs to url with Bearer auth.
+// extraHeaders are added after the standard Content-Type/Authorization headers.
 // Returns the raw response body, HTTP status code, and any transport error.
-func doPost(ctx context.Context, client *http.Client, url, apiKey string, payload map[string]interface{}) ([]byte, int, error) {
+func doPost(ctx context.Context, client *http.Client, url, apiKey string, payload map[string]interface{}, extraHeaders map[string]string) ([]byte, int, error) {
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return nil, 0, fmt.Errorf("marshal payload: %w", err)
@@ -24,6 +25,9 @@ func doPost(ctx context.Context, client *http.Client, url, apiKey string, payloa
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+apiKey)
+		for k, v := range extraHeaders {
+			req.Header.Set(k, v)
+		}
 		return req, nil
 	}
 
@@ -44,8 +48,8 @@ func doPost(ctx context.Context, client *http.Client, url, apiKey string, payloa
 // fields (max_tokens, max_completion_tokens) and retries once. This handles
 // providers that reject requests when the requested token ceiling exceeds the
 // account's available credits.
-func doPostWithFallback(ctx context.Context, client *http.Client, url, apiKey string, payload map[string]interface{}) ([]byte, int, error) {
-	body, status, err := doPost(ctx, client, url, apiKey, payload)
+func doPostWithFallback(ctx context.Context, client *http.Client, url, apiKey string, payload map[string]interface{}, extraHeaders map[string]string) ([]byte, int, error) {
+	body, status, err := doPost(ctx, client, url, apiKey, payload, extraHeaders)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -60,5 +64,5 @@ func doPostWithFallback(ctx context.Context, client *http.Client, url, apiKey st
 		}
 		fallback[k] = v
 	}
-	return doPost(ctx, client, url, apiKey, fallback)
+	return doPost(ctx, client, url, apiKey, fallback, extraHeaders)
 }
