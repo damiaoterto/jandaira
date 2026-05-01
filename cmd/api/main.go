@@ -13,6 +13,7 @@ import (
 	"github.com/damiaoterto/jandaira/internal/config"
 	"github.com/damiaoterto/jandaira/internal/database"
 	"github.com/damiaoterto/jandaira/internal/i18n"
+	"github.com/damiaoterto/jandaira/internal/provider"
 	"github.com/damiaoterto/jandaira/internal/queue"
 	"github.com/damiaoterto/jandaira/internal/repository"
 	"github.com/damiaoterto/jandaira/internal/security"
@@ -87,20 +88,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	provider := "openai"
+	providerName := "openai"
 	if cfg != nil && cfg.Provider != "" {
-		provider = strings.ToLower(cfg.Provider)
+		providerName = strings.ToLower(cfg.Provider)
 	}
-
-	modelType := "gpt-4o-mini"
-	if cfg != nil && cfg.Model != "" {
-		modelType = cfg.Model
-	} else if provider == "anthropic" {
-		modelType = "claude-sonnet-4-6"
-	}
-
-	var activeBrain brain.Brain
-	var embedBrain brain.Brain // always OpenAI for embeddings when available
 
 	repoDir := security.GetDefaultVaultDir()
 	vault, _ := security.InitVault(repoDir)
@@ -113,90 +104,15 @@ func main() {
 		return c.MaxNectar
 	}
 
-	switch provider {
-	case "anthropic":
-		apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
-		if apiKey == "" && vault != nil {
-			if key, err := vault.GetSecret("ANTHROPIC_API_KEY"); err == nil {
-				apiKey = strings.TrimSpace(key)
-			}
-		}
-		if apiKey != "" {
-			os.Setenv("ANTHROPIC_API_KEY", apiKey)
-		} else {
-			fmt.Println(i18n.T("warn_api_key_not_set"))
-			apiKey = "sk-mock-key-for-testing"
-		}
-		ab := brain.NewAnthropicBrain(apiKey, modelType)
-		ab.MaxTokensFn = maxTokensFn
-		activeBrain = ab
+	configuredModel := ""
+	if cfg != nil {
+		configuredModel = cfg.Model
+	}
 
-		// Attempt to load an OpenAI key for embeddings only.
-		oaiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-		if oaiKey == "" && vault != nil {
-			if key, err := vault.GetSecret("OPENAI_API_KEY"); err == nil {
-				oaiKey = strings.TrimSpace(key)
-			}
-		}
-		if oaiKey != "" {
-			embedBrain = brain.NewOpenAIBrain(oaiKey, "gpt-4o-mini")
-		} else {
-			embedBrain = activeBrain
-		}
-
-	case "openrouter":
-		apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
-		if apiKey == "" && vault != nil {
-			if key, err := vault.GetSecret("OPENROUTER_API_KEY"); err == nil {
-				apiKey = strings.TrimSpace(key)
-			}
-		}
-		if apiKey != "" {
-			os.Setenv("OPENROUTER_API_KEY", apiKey)
-		} else {
-			fmt.Println(i18n.T("warn_api_key_not_set"))
-			apiKey = "sk-mock-key-for-testing"
-		}
-		rb := brain.NewOpenRouterBrain(apiKey, modelType)
-		rb.MaxTokensFn = maxTokensFn
-		activeBrain = rb
-		embedBrain = rb
-
-	case "groq":
-		apiKey := strings.TrimSpace(os.Getenv("GROQ_API_KEY"))
-		if apiKey == "" && vault != nil {
-			if key, err := vault.GetSecret("GROQ_API_KEY"); err == nil {
-				apiKey = strings.TrimSpace(key)
-			}
-		}
-		if apiKey != "" {
-			os.Setenv("GROQ_API_KEY", apiKey)
-		} else {
-			fmt.Println(i18n.T("warn_api_key_not_set"))
-			apiKey = "sk-mock-key-for-testing"
-		}
-		gb := brain.NewGroqBrain(apiKey, modelType)
-		gb.MaxTokensFn = maxTokensFn
-		activeBrain = gb
-		embedBrain = gb
-
-	default:
-		apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-		if apiKey == "" && vault != nil {
-			if key, err := vault.GetSecret("OPENAI_API_KEY"); err == nil {
-				apiKey = strings.TrimSpace(key)
-			}
-		}
-		if apiKey != "" {
-			os.Setenv("OPENAI_API_KEY", apiKey)
-		} else {
-			fmt.Println(i18n.T("warn_api_key_not_set"))
-			apiKey = "sk-mock-key-for-testing"
-		}
-		oaiBrain := brain.NewOpenAIBrain(apiKey, modelType)
-		oaiBrain.MaxTokensFn = maxTokensFn
-		activeBrain = oaiBrain
-		embedBrain = oaiBrain
+	activeBrain, embedBrain, err := provider.BuildBrains(providerName, configuredModel, vault, maxTokensFn)
+	if err != nil {
+		fmt.Printf("Error initializing %s brain: %v\n", providerName, err)
+		os.Exit(1)
 	}
 
 	groupQueue := queue.NewGroupQueue(3)

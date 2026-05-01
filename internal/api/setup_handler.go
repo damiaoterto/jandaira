@@ -2,14 +2,13 @@ package api
 
 import (
 	"net/http"
-	"os"
-	"strings"
 
-	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/model"
+	"github.com/damiaoterto/jandaira/internal/provider"
 	"github.com/damiaoterto/jandaira/internal/security"
 	"github.com/damiaoterto/jandaira/internal/swarm"
 	"github.com/gin-gonic/gin"
+	"strings"
 )
 
 // handleSetup configures the hive on first run.
@@ -47,17 +46,13 @@ func (s *Server) handleSetup(c *gin.Context) {
 	}
 	cfg.Provider = strings.ToLower(cfg.Provider)
 
+	if !provider.IsValid(cfg.Provider) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unknown provider: " + cfg.Provider})
+		return
+	}
+
 	if cfg.Model == "" {
-		switch cfg.Provider {
-		case "anthropic":
-			cfg.Model = "claude-sonnet-4-6"
-		case "openrouter":
-			cfg.Model = "openai/gpt-4o-mini"
-		case "groq":
-			cfg.Model = "llama-3.3-70b-versatile"
-		default:
-			cfg.Model = "gpt-4o-mini"
-		}
+		cfg.Model = provider.DefaultModel(cfg.Provider)
 	}
 	if cfg.SwarmName == "" {
 		cfg.SwarmName = "enxame-alfa"
@@ -70,40 +65,13 @@ func (s *Server) handleSetup(c *gin.Context) {
 
 	if rawReq.APIKey != "" {
 		repoDir := security.GetDefaultVaultDir()
-		switch cfg.Provider {
-		case "anthropic":
-			if v, err := security.InitVault(repoDir); err == nil {
-				_ = v.SaveSecret("ANTHROPIC_API_KEY", rawReq.APIKey)
-			}
-			os.Setenv("ANTHROPIC_API_KEY", rawReq.APIKey)
-			ab := brain.NewAnthropicBrain(rawReq.APIKey, cfg.Model)
-			ab.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = ab
-		case "openrouter":
-			if v, err := security.InitVault(repoDir); err == nil {
-				_ = v.SaveSecret("OPENROUTER_API_KEY", rawReq.APIKey)
-			}
-			os.Setenv("OPENROUTER_API_KEY", rawReq.APIKey)
-			rb := brain.NewOpenRouterBrain(rawReq.APIKey, cfg.Model)
-			rb.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = rb
-		case "groq":
-			if v, err := security.InitVault(repoDir); err == nil {
-				_ = v.SaveSecret("GROQ_API_KEY", rawReq.APIKey)
-			}
-			os.Setenv("GROQ_API_KEY", rawReq.APIKey)
-			gb := brain.NewGroqBrain(rawReq.APIKey, cfg.Model)
-			gb.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = gb
-		default:
-			if v, err := security.InitVault(repoDir); err == nil {
-				_ = v.SaveSecret("OPENAI_API_KEY", rawReq.APIKey)
-			}
-			os.Setenv("OPENAI_API_KEY", rawReq.APIKey)
-			ob := brain.NewOpenAIBrain(rawReq.APIKey, cfg.Model)
-			ob.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = ob
+		vault, _ := security.InitVault(repoDir)
+		activeBrain, _, err := provider.BuildBrainsWithKey(cfg.Provider, rawReq.APIKey, cfg.Model, vault, s.maxTokensFn())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize brain: " + err.Error()})
+			return
 		}
+		s.Queen.Brain = activeBrain
 	}
 
 	s.Queen.RegisterSwarm(cfg.SwarmName, swarm.Policy{

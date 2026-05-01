@@ -8,6 +8,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- **Gemini provider** (`internal/brain/gemini.go`): new `GeminiBrain` implements `Brain` using `google.golang.org/genai`. `Chat` supports tool calling with function call IDs; system instructions passed via `GenerateContentConfig.SystemInstruction`; tool schemas converted from JSON Schema to `genai.Schema` recursively. `Embed` uses `gemini-embedding-2` multimodal model. Default model `gemini-2.0-flash`. `POST /api/setup` with `"provider": "gemini"` stores `GEMINI_API_KEY` in vault and wires the brain to the Queen.
+- **Provider factory** (`internal/provider/providers.go`): new `provider` package centralises all LLM provider wiring. `BuildBrains` resolves the API key from env/vault and builds active + embed brains. `BuildBrainsWithKey` saves the key to vault, sets the env var, and builds brains — used by setup and config handlers. `DefaultModel` returns the canonical default model for a provider. `IsValid` reports whether a provider name is known.
+- **`POST /api/setup` — unknown-provider validation** (`internal/api/setup_handler.go`): request with an unrecognised `provider` value now returns `400 Bad Request` with `"Unknown provider: <value>"` instead of silently falling back to OpenAI.
+
+### Fixed
+
+- **Setup and config handlers used OpenAI for all unknown providers** (`internal/api/setup_handler.go`, `internal/api/config_handler.go`): both handlers had their own `switch cfg.Provider` blocks that lacked a `gemini` case — any Gemini setup fell through to `default` (OpenAI), causing `invalid_api_key` errors at runtime. Both handlers now delegate to `provider.BuildBrainsWithKey` / `provider.BuildBrains`, picking up all registered providers automatically.
+
+### Changed
+
+- **Provider wiring extracted from `main.go`** (`cmd/api/main.go`, `internal/provider/providers.go`): the large `switch provider` block (≈100 lines) that built brains at startup is replaced by a single `provider.BuildBrains(...)` call. Adding a new LLM provider now requires only one entry in the factory map in `internal/provider/providers.go`.
+
 ### Fixed
 
 - **`jandaira-static` reverse proxy** (`cmd/static/main.go`): static server only served files; API calls from the frontend (`/api/*`, `/ws`) returned 404 on Linux/macOS native installs. Added `httputil.ReverseProxy` that forwards `/api/*` and `/ws` to `http://localhost:8080`, with SPA fallback to `index.html` for all other routes.
