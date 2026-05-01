@@ -2,11 +2,10 @@ package api
 
 import (
 	"net/http"
-	"os"
 	"strings"
 
-	"github.com/damiaoterto/jandaira/internal/brain"
 	"github.com/damiaoterto/jandaira/internal/model"
+	"github.com/damiaoterto/jandaira/internal/provider"
 	"github.com/damiaoterto/jandaira/internal/security"
 	"github.com/gin-gonic/gin"
 )
@@ -70,89 +69,20 @@ func (s *Server) handleUpdateConfig(c *gin.Context) {
 		return
 	}
 
+	repoDir := security.GetDefaultVaultDir()
+	vault, _ := security.InitVault(repoDir)
+
+	var activeBrain = s.Queen.Brain
 	if req.APIKey != "" {
-		repoDir := security.GetDefaultVaultDir()
-		switch cfg.Provider {
-		case "anthropic":
-			if v, err := security.InitVault(repoDir); err == nil {
-				_ = v.SaveSecret("ANTHROPIC_API_KEY", req.APIKey)
-			}
-			os.Setenv("ANTHROPIC_API_KEY", req.APIKey)
-			ab := brain.NewAnthropicBrain(req.APIKey, cfg.Model)
-			ab.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = ab
-		case "openrouter":
-			if v, err := security.InitVault(repoDir); err == nil {
-				_ = v.SaveSecret("OPENROUTER_API_KEY", req.APIKey)
-			}
-			os.Setenv("OPENROUTER_API_KEY", req.APIKey)
-			rb := brain.NewOpenRouterBrain(req.APIKey, cfg.Model)
-			rb.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = rb
-		case "groq":
-			if v, err := security.InitVault(repoDir); err == nil {
-				_ = v.SaveSecret("GROQ_API_KEY", req.APIKey)
-			}
-			os.Setenv("GROQ_API_KEY", req.APIKey)
-			gb := brain.NewGroqBrain(req.APIKey, cfg.Model)
-			gb.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = gb
-		default:
-			if v, err := security.InitVault(repoDir); err == nil {
-				_ = v.SaveSecret("OPENAI_API_KEY", req.APIKey)
-			}
-			os.Setenv("OPENAI_API_KEY", req.APIKey)
-			ob := brain.NewOpenAIBrain(req.APIKey, cfg.Model)
-			ob.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = ob
-		}
+		activeBrain, _, err = provider.BuildBrainsWithKey(cfg.Provider, req.APIKey, cfg.Model, vault, s.maxTokensFn())
 	} else if req.Provider != "" {
-		// Provider changed but no new key — rebuild brain from vault/env with existing key.
-		repoDir := security.GetDefaultVaultDir()
-		vault, _ := security.InitVault(repoDir)
-		switch cfg.Provider {
-		case "anthropic":
-			apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
-			if apiKey == "" && vault != nil {
-				if key, err := vault.GetSecret("ANTHROPIC_API_KEY"); err == nil {
-					apiKey = strings.TrimSpace(key)
-				}
-			}
-			ab := brain.NewAnthropicBrain(apiKey, cfg.Model)
-			ab.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = ab
-		case "openrouter":
-			apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
-			if apiKey == "" && vault != nil {
-				if key, err := vault.GetSecret("OPENROUTER_API_KEY"); err == nil {
-					apiKey = strings.TrimSpace(key)
-				}
-			}
-			rb := brain.NewOpenRouterBrain(apiKey, cfg.Model)
-			rb.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = rb
-		case "groq":
-			apiKey := strings.TrimSpace(os.Getenv("GROQ_API_KEY"))
-			if apiKey == "" && vault != nil {
-				if key, err := vault.GetSecret("GROQ_API_KEY"); err == nil {
-					apiKey = strings.TrimSpace(key)
-				}
-			}
-			gb := brain.NewGroqBrain(apiKey, cfg.Model)
-			gb.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = gb
-		default:
-			apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-			if apiKey == "" && vault != nil {
-				if key, err := vault.GetSecret("OPENAI_API_KEY"); err == nil {
-					apiKey = strings.TrimSpace(key)
-				}
-			}
-			ob := brain.NewOpenAIBrain(apiKey, cfg.Model)
-			ob.MaxTokensFn = s.maxTokensFn()
-			s.Queen.Brain = ob
-		}
+		activeBrain, _, err = provider.BuildBrains(cfg.Provider, cfg.Model, vault, s.maxTokensFn())
 	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize brain: " + err.Error()})
+		return
+	}
+	s.Queen.Brain = activeBrain
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "Configuration updated successfully.",
