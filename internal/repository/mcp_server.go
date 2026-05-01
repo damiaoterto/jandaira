@@ -58,7 +58,12 @@ func (r *mcpServerRepository) Update(s *model.MCPServer) error {
 }
 
 func (r *mcpServerRepository) Delete(id string) error {
-	return r.db.Delete(&model.MCPServer{}, "id = ?", id).Error
+	server := model.MCPServer{ID: id}
+	// Remove associações many-to-many antes de deletar para evitar erro de Foreign Key
+	if err := r.db.Model(&server).Association("Colmeias").Clear(); err != nil {
+		return err
+	}
+	return r.db.Delete(&server).Error
 }
 
 func (r *mcpServerRepository) AttachToColmeia(serverID, colmeiaID string) error {

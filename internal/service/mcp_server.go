@@ -47,6 +47,11 @@ func (s *mcpServerService) Create(name, transport, command, url string, envVars 
 	if err := validateTransport(transport); err != nil {
 		return nil, err
 	}
+	if transport == model.MCPTransportStdio {
+		if err := validateCommand(command); err != nil {
+			return nil, err
+		}
+	}
 	srv := &model.MCPServer{
 		Name:      name,
 		Transport: transport,
@@ -81,6 +86,11 @@ func (s *mcpServerService) List() ([]model.MCPServer, error) {
 func (s *mcpServerService) Update(id, name, transport, command, url string, envVars map[string]string, active bool) (*model.MCPServer, error) {
 	if err := validateTransport(transport); err != nil {
 		return nil, err
+	}
+	if transport == model.MCPTransportStdio {
+		if err := validateCommand(command); err != nil {
+			return nil, err
+		}
 	}
 	srv, err := s.repo.FindByID(id)
 	if err != nil {
@@ -214,5 +224,42 @@ func validateTransport(t string) error {
 	if t != model.MCPTransportStdio && t != model.MCPTransportSSE {
 		return fmt.Errorf("invalid transport %q: must be %q or %q", t, model.MCPTransportStdio, model.MCPTransportSSE)
 	}
+	return nil
+}
+
+// validateCommand prevents arbitrary code execution by validating the base executable
+// against a whitelist, and explicitly forbidding shell interpreters.
+func validateCommand(command string) error {
+	tmpSrv := model.MCPServer{Command: command}
+	tokens := tmpSrv.CommandTokens()
+	if len(tokens) == 0 {
+		return fmt.Errorf("command is required for stdio transport")
+	}
+
+	execBin := tokens[0]
+
+	// Explicit blacklist (defense in depth)
+	blacklisted := map[string]bool{
+		"sh": true, "bash": true, "zsh": true, "csh": true, "ksh": true,
+		"cmd": true, "cmd.exe": true, "powershell": true, "pwsh": true,
+	}
+	if blacklisted[execBin] {
+		return fmt.Errorf("security violation: execution of shell interpreters (%s) is forbidden", execBin)
+	}
+
+	// Strict whitelist
+	whitelisted := map[string]bool{
+		"npx":     true,
+		"node":    true,
+		"python":  true,
+		"python3": true,
+		"docker":  true,
+		"go":      true,
+	}
+
+	if !whitelisted[execBin] {
+		return fmt.Errorf("security violation: executable %q is not in the allowed whitelist", execBin)
+	}
+
 	return nil
 }

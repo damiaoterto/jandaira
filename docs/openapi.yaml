@@ -56,6 +56,10 @@ tags:
       the document is saved to disk only and a `201` is still returned with `chunks: 0`.
   - name: Catalog
     description: Tools and agents catalog
+  - name: MCP
+    description: |
+      Model Context Protocol (MCP) Server integrations. 
+      MCP Servers expose external tools dynamically to the swarm.
   - name: WebSocket
     description: Real-time event stream
 
@@ -1778,6 +1782,205 @@ paths:
         '400':
           description: WebSocket upgrade failed
 
+  /api/mcp-servers:
+    get:
+      tags: [MCP]
+      summary: List all MCP servers
+      responses:
+        '200':
+          description: MCP server list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mcp_servers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MCPServer'
+                  total:
+                    type: integer
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [MCP]
+      summary: Create an MCP server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMCPServerRequest'
+      responses:
+        '201':
+          description: MCP server created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  mcp_server:
+                    $ref: '#/components/schemas/MCPServer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+
+  /api/mcp-servers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/MCPServerID'
+
+    get:
+      tags: [MCP]
+      summary: Get an MCP server
+      responses:
+        '200':
+          description: MCP server
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPServer'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      tags: [MCP]
+      summary: Update an MCP server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMCPServerRequest'
+      responses:
+        '200':
+          description: MCP server updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  mcp_server:
+                    $ref: '#/components/schemas/MCPServer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+
+    delete:
+      tags: [MCP]
+      summary: Delete an MCP server
+      responses:
+        '200':
+          description: MCP server deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/mcp-servers:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+
+    get:
+      tags: [MCP]
+      summary: List MCP servers for a hive
+      responses:
+        '200':
+          description: MCP server list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mcp_servers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MCPServer'
+                  total:
+                    type: integer
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [MCP]
+      summary: Attach an MCP server to a hive
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mcp_server_id]
+              properties:
+                mcp_server_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: MCP server attached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/mcp-servers/{serverId}:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+      - name: serverId
+        in: path
+        required: true
+        description: MCP Server UUID
+        schema:
+          type: string
+          format: uuid
+
+    delete:
+      tags: [MCP]
+      summary: Detach an MCP server from a hive
+      responses:
+        '200':
+          description: MCP server detached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   schemas:
     SetupRequest:
@@ -2441,6 +2644,64 @@ components:
           type: boolean
           default: true
 
+    MCPServer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "postgres-mcp"
+        transport:
+          type: string
+          enum: [stdio, sse]
+          example: "stdio"
+        command:
+          type: string
+          description: Command to execute (stdio transport)
+          example: "npx -y @mcp/server-postgres postgres://..."
+        url:
+          type: string
+          description: URL for SSE transport
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
+        active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateMCPServerRequest:
+      type: object
+      required: [name, transport]
+      properties:
+        name:
+          type: string
+          example: "postgres-mcp"
+        transport:
+          type: string
+          enum: [stdio, sse]
+          example: "stdio"
+        command:
+          type: string
+          example: "npx -y @mcp/server-postgres postgres://..."
+        url:
+          type: string
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
+        active:
+          type: boolean
+          default: true
+
     MessageResponse:
       type: object
       properties:
@@ -2454,6 +2715,16 @@ components:
           type: string
 
   parameters:
+    MCPServerID:
+      name: id
+      in: path
+      required: true
+      description: MCP Server UUID
+      schema:
+        type: string
+        format: uuid
+      example: "c4d5e6f7-a8b9-0123-cdef-456789abcdef"
+
     SessionID:
       name: id
       in: path
