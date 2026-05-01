@@ -40,6 +40,7 @@ func Open(dbPath string) (*gorm.DB, error) {
 		&model.Document{},
 		&model.Webhook{},
 		&model.OutboundWebhook{},
+		&model.MCPServer{},
 	); err != nil {
 		return nil, err
 	}

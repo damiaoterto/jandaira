@@ -140,6 +140,40 @@ graph LR
 
 ---
 
+## 🔌 Интеграции MCP (Model Context Protocol)
+
+Jandaira поддерживает нативное подключение каждого улья к одному или нескольким внешним MCP-серверам. Связь **многие-ко-многим**: один улей может использовать несколько MCP-серверов, а один сервер — разделяться между несколькими ульями.
+
+**Поддерживаемые транспорты:**
+- **Stdio** — запускает MCP-сервер как дочерний процесс (например, `npx -y @mcp/server-postgres`). Лучше всего подходит для баз данных, файловых систем и локальных инструментов.
+- **SSE** — подключается к удалённым MCP-серверам по HTTP+SSE. Лучше всего подходит для облачных интеграций.
+
+```bash
+# 1. Регистрируем MCP-сервер PostgreSQL
+curl -X POST http://localhost:8080/api/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "postgres-analytics",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-postgres postgres://user:pass@localhost/db",
+    "active": true
+  }'
+
+# 2. Привязываем к улью
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{"mcp_server_id": "{server-id}"}'
+
+# 3. Запускаем задачу — MCP-инструменты загружаются автоматически
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Выведи все заказы за прошлый месяц и подсчитай общую выручку"}'
+```
+
+> Полная документация (на английском): [`docs/mcp-engine.md`](mcp-engine.md)
+
+---
+
 ## 🪝 Механизм Webhook (Простая интеграция)
 
 Вы можете подключить Jandaira к GitHub, Slack и т. д. ИИ запускается автоматически при возникновении события.
@@ -174,6 +208,8 @@ graph LR
 | **Список инструментов** | `GET /api/tools` | Посмотрите, что могут делать ИИ. |
 | **Реальное время** | `GET /ws` | WebSocket для мониторинга ИИ и одобрения действий. |
 | **Вебхуки** | `POST /api/webhooks/:slug` | Запускает внешнее событие. |
+| **MCP-серверы** | `GET/POST /api/mcp-servers` | Управление конфигурациями MCP-серверов. |
+| **MCP улья** | `GET/POST /api/colmeias/:id/mcp-servers` | Привязка / отвязка MCP-серверов от улья. |
 
 ---
 

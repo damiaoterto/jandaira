@@ -140,6 +140,40 @@ graph LR
 
 ---
 
+## 🔌 MCP Integrations (Model Context Protocol)
+
+Jandaira natively supports connecting each hive to one or more external MCP servers. The relationship is **many-to-many**: one hive can use multiple MCP servers, and one server can be shared across hives.
+
+**Supported transports:**
+- **Stdio** — launches the MCP server as a child subprocess (e.g. `npx -y @mcp/server-postgres`). Best for databases, filesystems, local tools.
+- **SSE** — connects to remote HTTP+SSE MCP servers. Best for cloud-hosted integrations.
+
+```bash
+# 1. Register a PostgreSQL MCP server
+curl -X POST http://localhost:8080/api/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "postgres-analytics",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-postgres postgres://user:pass@localhost/db",
+    "active": true
+  }'
+
+# 2. Attach it to a hive
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{"mcp_server_id": "{server-id}"}'
+
+# 3. Dispatch — MCP tools load automatically, the Queen assigns them to agents
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "List orders from last month and calculate total revenue"}'
+```
+
+> Full documentation: [`docs/mcp-engine.md`](mcp-engine.md)
+
+---
+
 ## 🪝 Webhook Engine (Easy Integrations)
 
 You can connect Jandaira to GitHub, Slack, etc. The AI is automatically triggered when an event occurs.
@@ -174,6 +208,8 @@ graph LR
 | **List Tools** | `GET /api/tools` | See what the AIs can do. |
 | **Real-time** | `GET /ws` | WebSocket to monitor AIs and approve actions. |
 | **Webhooks** | `POST /api/webhooks/:slug` | Triggers an external event. |
+| **MCP Servers** | `GET/POST /api/mcp-servers` | Manage MCP server configurations. |
+| **Hive MCP** | `GET/POST /api/colmeias/:id/mcp-servers` | Attach / detach MCP servers from a hive. |
 
 ---
 

@@ -140,6 +140,40 @@ graph LR
 
 ---
 
+## 🔌 Integrações MCP (Model Context Protocol)
+
+O Jandaira suporta integração nativa com qualquer servidor MCP. Cada colmeia pode ter uma ou mais integrações — um servidor MCP também pode ser compartilhado entre várias colmeias.
+
+**Transportes suportados:**
+- **Stdio** — inicia o servidor MCP como subprocesso (ex: `npx -y @mcp/server-postgres`). Ideal para bancos de dados, sistema de arquivos, ferramentas locais.
+- **SSE** — conecta a servidores MCP remotos via HTTP+SSE. Ideal para integrações em nuvem.
+
+```bash
+# 1. Registra um servidor MCP de PostgreSQL
+curl -X POST http://localhost:8080/api/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "postgres-analytics",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-postgres postgres://user:pass@localhost/db",
+    "active": true
+  }'
+
+# 2. Associa à colmeia
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{"mcp_server_id": "{server-id}"}'
+
+# 3. Despacha — ferramentas MCP carregam automaticamente
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Liste os pedidos do último mês e calcule o faturamento total"}'
+```
+
+> Documentação completa: [`docs/mcp-engine.md`](docs/mcp-engine.md)
+
+---
+
 ## 🪝 Webhook Engine (Integrações fáceis)
 
 Você pode conectar o Jandaira ao GitHub, Slack, etc. A IA é ativada automaticamente quando um evento acontece.
@@ -174,6 +208,8 @@ graph LR
 | **Listar Ferramentas** | `GET /api/tools` | Veja o que as IAs podem fazer. |
 | **Tempo Real** | `GET /ws` | WebSocket para acompanhar os IAs e aprovar ações. |
 | **Webhooks** | `POST /api/webhooks/:slug` | Dispara um gatilho externo. |
+| **Servidores MCP** | `GET/POST /api/mcp-servers` | Gerencia integrações MCP. |
+| **MCP da Colmeia** | `GET/POST /api/colmeias/:id/mcp-servers` | Associa MCP a uma colmeia. |
 
 ---
 

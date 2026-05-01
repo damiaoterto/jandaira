@@ -140,6 +140,40 @@ graph LR
 
 ---
 
+## 🔌 MCP 集成（模型上下文协议）
+
+Jandaira 原生支持将每个蜂巢连接到一个或多个外部 MCP 服务器。关系为**多对多**：一个蜂巢可以使用多个 MCP 服务器，一个服务器也可以在多个蜂巢之间共享。
+
+**支持的传输方式：**
+- **Stdio** — 将 MCP 服务器作为子进程启动（例如 `npx -y @mcp/server-postgres`）。适用于数据库、文件系统和本地工具。
+- **SSE** — 通过 HTTP+SSE 连接到远程 MCP 服务器。适用于云端集成。
+
+```bash
+# 1. 注册 PostgreSQL MCP 服务器
+curl -X POST http://localhost:8080/api/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "postgres-analytics",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-postgres postgres://user:pass@localhost/db",
+    "active": true
+  }'
+
+# 2. 将其附加到蜂巢
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{"mcp_server_id": "{server-id}"}'
+
+# 3. 调度任务 — MCP 工具自动加载
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "列出上个月的所有订单并计算总收入"}'
+```
+
+> 完整文档（英文）：[`docs/mcp-engine.md`](mcp-engine.md)
+
+---
+
 ## 🪝 Webhook 引擎（轻松集成）
 
 您可以将 Jandaira 连接到 GitHub、Slack 等。当事件发生时，AI 会自动触发。
@@ -174,6 +208,8 @@ graph LR
 | **列出工具** | `GET /api/tools` | 查看 AI 能做什么。 |
 | **实时监控** | `GET /ws` | WebSocket，用于监控 AI 并批准操作。 |
 | **Webhooks** | `POST /api/webhooks/:slug` | 触发外部事件。 |
+| **MCP 服务器** | `GET/POST /api/mcp-servers` | 管理 MCP 服务器配置。 |
+| **蜂巢 MCP** | `GET/POST /api/colmeias/:id/mcp-servers` | 将 MCP 服务器附加到蜂巢 / 解除关联。 |
 
 ---
 

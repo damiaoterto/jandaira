@@ -51,6 +51,7 @@ func (r *colmeiaRepository) FindByIDWithAgentes(id string) (*model.Colmeia, erro
 	var c model.Colmeia
 	if err := r.db.
 		Preload("Skills").
+		Preload("MCPServers").
 		Preload("Agentes", func(db *gorm.DB) *gorm.DB {
 			return db.Order("id ASC")
 		}).

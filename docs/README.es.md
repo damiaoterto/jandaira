@@ -140,6 +140,40 @@ graph LR
 
 ---
 
+## 🔌 Integraciones MCP (Model Context Protocol)
+
+Jandaira admite de forma nativa la conexión de cada colmena a uno o más servidores MCP externos. La relación es **muchos a muchos**: una colmena puede usar varios servidores MCP y un servidor puede compartirse entre varias colmenas.
+
+**Transportes compatibles:**
+- **Stdio** — lanza el servidor MCP como subproceso (ej. `npx -y @mcp/server-postgres`). Ideal para bases de datos, sistemas de archivos y herramientas locales.
+- **SSE** — conecta a servidores MCP remotos vía HTTP+SSE. Ideal para integraciones en la nube.
+
+```bash
+# 1. Registra un servidor MCP de PostgreSQL
+curl -X POST http://localhost:8080/api/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "postgres-analytics",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-postgres postgres://user:pass@localhost/db",
+    "active": true
+  }'
+
+# 2. Asócialo a una colmena
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{"mcp_server_id": "{server-id}"}'
+
+# 3. Despacha — las herramientas MCP se cargan automáticamente
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Lista los pedidos del último mes y calcula el ingreso total"}'
+```
+
+> Documentación completa (en inglés): [`docs/mcp-engine.md`](mcp-engine.md)
+
+---
+
 ## 🪝 Webhook Engine (Integraciones fáciles)
 
 Puedes conectar Jandaira a GitHub, Slack, etc. La IA se activa automáticamente cuando ocurre un evento.
@@ -174,6 +208,8 @@ graph LR
 | **Listar Herramientas** | `GET /api/tools` | Mira lo que las IAs pueden hacer. |
 | **Tiempo Real** | `GET /ws` | WebSocket para seguir a las IAs y aprobar acciones. |
 | **Webhooks** | `POST /api/webhooks/:slug` | Dispara un evento externo. |
+| **Servidores MCP** | `GET/POST /api/mcp-servers` | Gestiona configuraciones de servidores MCP. |
+| **MCP de la colmena** | `GET/POST /api/colmeias/:id/mcp-servers` | Asocia / desconecta servidores MCP de una colmena. |
 
 ---
 

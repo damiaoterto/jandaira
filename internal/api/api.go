@@ -54,6 +54,7 @@ type Server struct {
 	documentService service.DocumentService
 	webhookService         service.WebhookService
 	outboundWebhookService service.OutboundWebhookService
+	mcpService             service.MCPServerService
 
 	// WebSocket client management
 	clients   map[*websocket.Conn]bool
@@ -64,7 +65,7 @@ type Server struct {
 	pendingApprovalsMu sync.Mutex
 }
 
-func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService, skillSvc service.SkillService, docSvc service.DocumentService, webhookSvc service.WebhookService, outboundWebhookSvc service.OutboundWebhookService) *Server {
+func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessionSvc service.SessionService, colmeiaSvc service.ColmeiaService, skillSvc service.SkillService, docSvc service.DocumentService, webhookSvc service.WebhookService, outboundWebhookSvc service.OutboundWebhookService, mcpSvc service.MCPServerService) *Server {
 	s := &Server{
 		Queen:                  q,
 		Port:                   port,
@@ -75,6 +76,7 @@ func NewServer(q *swarm.Queen, port int, cfgService service.ConfigService, sessi
 		documentService:        docSvc,
 		webhookService:         webhookSvc,
 		outboundWebhookService: outboundWebhookSvc,
+		mcpService:             mcpSvc,
 		clients:                make(map[*websocket.Conn]bool),
 		pendingApprovals:       make(map[string]bool),
 	}
@@ -202,6 +204,16 @@ func (s *Server) Start() error {
 			webhooks.DELETE("/:id", s.handleDeleteWebhook)
 		}
 
+		// MCP server routes (global catalogue of MCP integrations)
+		mcpServers := api.Group("/mcp-servers")
+		{
+			mcpServers.GET("", s.handleListMCPServers)
+			mcpServers.POST("", s.handleCreateMCPServer)
+			mcpServers.GET("/:id", s.handleGetMCPServer)
+			mcpServers.PUT("/:id", s.handleUpdateMCPServer)
+			mcpServers.DELETE("/:id", s.handleDeleteMCPServer)
+		}
+
 		// Skill routes (catálogo global de skills reutilizáveis)
 		skills := api.Group("/skills")
 		{
@@ -240,6 +252,11 @@ func (s *Server) Start() error {
 			colmeias.GET("/:id/skills", s.handleListColmeiaSkills)
 			colmeias.POST("/:id/skills", s.handleAttachSkillToColmeia)
 			colmeias.DELETE("/:id/skills/:skillId", s.handleDetachSkillFromColmeia)
+
+			// MCP servers associados à colmeia
+			colmeias.GET("/:id/mcp-servers", s.handleListColmeiaMCPServers)
+			colmeias.POST("/:id/mcp-servers", s.handleAttachMCPServerToColmeia)
+			colmeias.DELETE("/:id/mcp-servers/:serverId", s.handleDetachMCPServerFromColmeia)
 
 			agentes := colmeias.Group("/:id/agentes")
 			{
