@@ -34,12 +34,14 @@ func NewStdioTransport(command []string, env []string) *StdioTransport {
 }
 
 // Start launches the child process and wires up the I/O pipes.
-func (t *StdioTransport) Start(ctx context.Context) error {
+// The process lifetime is managed by Close(), not by ctx — ctx is used only
+// for blocking handshake operations (initialize, ListTools) performed after Start returns.
+func (t *StdioTransport) Start(_ context.Context) error {
 	if len(t.Command) == 0 {
 		return fmt.Errorf("mcp stdio: empty command")
 	}
 
-	t.cmd = exec.CommandContext(ctx, t.Command[0], t.Command[1:]...)
+	t.cmd = exec.Command(t.Command[0], t.Command[1:]...)
 
 	// Inherit the parent environment and append extras.
 	if len(t.Env) > 0 {
@@ -80,13 +82,14 @@ func (t *StdioTransport) Receive() (<-chan []byte, error) {
 	return t.outChan, nil
 }
 
-// Close kills the child process and closes the I/O pipes.
+// Close kills the child process and reaps it to prevent zombies.
 func (t *StdioTransport) Close() error {
 	if t.stdin != nil {
 		_ = t.stdin.Close()
 	}
 	if t.cmd != nil && t.cmd.Process != nil {
-		return t.cmd.Process.Kill()
+		_ = t.cmd.Process.Kill()
+		_ = t.cmd.Wait() // reap; error expected (killed), intentionally ignored
 	}
 	return nil
 }

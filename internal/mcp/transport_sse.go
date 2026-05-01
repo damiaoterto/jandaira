@@ -155,7 +155,8 @@ func (t *SSETransport) sseLoop(ctx context.Context, endpointCh chan<- string, er
 				cp := []byte(dataLine)
 				select {
 				case t.outChan <- cp:
-				default:
+				case <-ctx.Done():
+					return
 				}
 			}
 			eventType = ""
