@@ -94,7 +94,9 @@ func (t *StdioTransport) Close() error {
 	return nil
 }
 
-// readLoop scans stdout line by line and forwards each JSON line to outChan.
+// readLoop scans stdout line by line and forwards only JSON frames to outChan.
+// Non-JSON lines (sbx startup banners, tool initialisation logs) are logged and
+// discarded so they never reach the engine's JSON-RPC parser.
 func (t *StdioTransport) readLoop() {
 	defer close(t.outChan)
 	scanner := bufio.NewScanner(t.stdout)
@@ -102,6 +104,11 @@ func (t *StdioTransport) readLoop() {
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
+			continue
+		}
+		// Valid JSON-RPC frames always start with '{'; drop anything else.
+		if line[0] != '{' {
+			log.Printf("[mcp-stdio] non-json stdout ignored: %.200s", line)
 			continue
 		}
 		cp := make([]byte, len(line))

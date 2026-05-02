@@ -8,6 +8,7 @@ import (
 	"github.com/damiaoterto/jandaira/internal/mcp"
 	"github.com/damiaoterto/jandaira/internal/model"
 	"github.com/damiaoterto/jandaira/internal/repository"
+	"github.com/damiaoterto/jandaira/internal/security"
 	"github.com/damiaoterto/jandaira/internal/tool"
 )
 
@@ -17,10 +18,10 @@ var ErrMCPServerNotFound = errors.New("MCP server not found")
 // and starting live connections for a colmeia dispatch.
 type MCPServerService interface {
 	// CRUD
-	Create(name, transport, command, url string, envVars map[string]string, active bool) (*model.MCPServer, error)
+	Create(name, transport string, command []string, url string, envVars map[string]string, active bool) (*model.MCPServer, error)
 	GetByID(id string) (*model.MCPServer, error)
 	List() ([]model.MCPServer, error)
-	Update(id, name, transport, command, url string, envVars map[string]string, active bool) (*model.MCPServer, error)
+	Update(id, name, transport string, command []string, url string, envVars map[string]string, active bool) (*model.MCPServer, error)
 	Delete(id string) error
 
 	// Colmeia ↔ MCPServer association
@@ -43,7 +44,7 @@ func NewMCPServerService(repo repository.MCPServerRepository) MCPServerService {
 	return &mcpServerService{repo: repo}
 }
 
-func (s *mcpServerService) Create(name, transport, command, url string, envVars map[string]string, active bool) (*model.MCPServer, error) {
+func (s *mcpServerService) Create(name, transport string, command []string, url string, envVars map[string]string, active bool) (*model.MCPServer, error) {
 	if err := validateTransport(transport); err != nil {
 		return nil, err
 	}
@@ -83,7 +84,7 @@ func (s *mcpServerService) List() ([]model.MCPServer, error) {
 	return s.repo.FindAll()
 }
 
-func (s *mcpServerService) Update(id, name, transport, command, url string, envVars map[string]string, active bool) (*model.MCPServer, error) {
+func (s *mcpServerService) Update(id, name, transport string, command []string, url string, envVars map[string]string, active bool) (*model.MCPServer, error) {
 	if err := validateTransport(transport); err != nil {
 		return nil, err
 	}
@@ -193,11 +194,10 @@ func (s *mcpServerService) StartEnginesForColmeia(ctx context.Context, colmeiaID
 func buildTransport(srv *model.MCPServer) (mcp.Transport, error) {
 	switch srv.Transport {
 	case model.MCPTransportStdio:
-		tokens := srv.CommandTokens()
-		if len(tokens) == 0 {
+		if len(srv.Command) == 0 {
 			return nil, fmt.Errorf("stdio transport requires a non-empty command")
 		}
-		return mcp.NewStdioTransport(tokens, srv.EnvSlice()), nil
+		return mcp.NewStdioTransport(srv.Command, srv.EnvSlice()), nil
 
 	case model.MCPTransportSSE:
 		if srv.URL == "" {
@@ -227,39 +227,8 @@ func validateTransport(t string) error {
 	return nil
 }
 
-// validateCommand prevents arbitrary code execution by validating the base executable
-// against a whitelist, and explicitly forbidding shell interpreters.
-func validateCommand(command string) error {
-	tmpSrv := model.MCPServer{Command: command}
-	tokens := tmpSrv.CommandTokens()
-	if len(tokens) == 0 {
-		return fmt.Errorf("command is required for stdio transport")
-	}
-
-	execBin := tokens[0]
-
-	// Explicit blacklist (defense in depth)
-	blacklisted := map[string]bool{
-		"sh": true, "bash": true, "zsh": true, "csh": true, "ksh": true,
-		"cmd": true, "cmd.exe": true, "powershell": true, "pwsh": true,
-	}
-	if blacklisted[execBin] {
-		return fmt.Errorf("security violation: execution of shell interpreters (%s) is forbidden", execBin)
-	}
-
-	// Strict whitelist
-	whitelisted := map[string]bool{
-		"npx":     true,
-		"node":    true,
-		"python":  true,
-		"python3": true,
-		"docker":  true,
-		"go":      true,
-	}
-
-	if !whitelisted[execBin] {
-		return fmt.Errorf("security violation: executable %q is not in the allowed whitelist", execBin)
-	}
-
-	return nil
+// validateCommand delegates to security.ValidateSbxCommand, enforcing that all
+// stdio MCP servers run inside an isolated Docker sandbox via the sbx CLI.
+func validateCommand(command []string) error {
+	return security.ValidateSbxCommand(command)
 }

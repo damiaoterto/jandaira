@@ -32,7 +32,7 @@ func (s *Server) handleCreateMCPServer(c *gin.Context) {
 	var req struct {
 		Name      string            `json:"name"      binding:"required"`
 		Transport string            `json:"transport" binding:"required"`
-		Command   string            `json:"command"`
+		Command   []string          `json:"command"`
 		URL       string            `json:"url"`
 		EnvVars   map[string]string `json:"env_vars"`
 		Active    *bool             `json:"active"`
@@ -81,7 +81,7 @@ func (s *Server) handleUpdateMCPServer(c *gin.Context) {
 	var req struct {
 		Name      string            `json:"name"      binding:"required"`
 		Transport string            `json:"transport" binding:"required"`
-		Command   string            `json:"command"`
+		Command   []string          `json:"command"`
 		URL       string            `json:"url"`
 		EnvVars   map[string]string `json:"env_vars"`
 		Active    *bool             `json:"active"`

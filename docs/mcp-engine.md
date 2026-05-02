@@ -47,7 +47,7 @@ The LLM never knows it is talking to an external process — MCP tools appear in
 │                                                              │
 │  ┌──────────────┐   tools/list   ┌─────────────────────┐    │
 │  │  MCPEngine   │◄──────────────►│  MCP Server (stdio) │    │
-│  │  (Go client) │   tools/call   │  (npx / node / py)  │    │
+│  │  (Go client) │   tools/call   │  (sbx sandbox)      │    │
 │  └──────┬───────┘                └─────────────────────┘    │
 │         │ MCPToolAdapter                                      │
 │         │ implements tool.Tool                               │
@@ -115,14 +115,14 @@ Used when the MCP server runs as a **local subprocess** (most common case).
 
 **How it works:**
 
-1. Go calls `exec.CommandContext` with the command tokens (e.g. `["npx", "-y", "@mcp/server-postgres", "postgres://..."]`).
+1. Go calls `exec.Command` with the command tokens stored in the `Command []string` field (e.g. `["sbx","exec","npx","-y","@mcp/server-postgres","postgres://..."]`).
 2. Go "hijacks" `stdin` and `stdout` of the child process.
 3. `Send()` writes a JSON line to the child's `stdin`.
 4. A background goroutine scans the child's `stdout` line-by-line and forwards each JSON line to an internal channel.
 5. MCP server stderr is redirected to the Go logger for debugging.
 
 ```
-Go process                          Child process (Node.js / Python)
+Go process                          sbx sandbox (Docker MicroVM)
 ─────────────────────────────────   ──────────────────────────────────
 stdin.Write(jsonRequest + "\n") ──► MCP server reads from own stdin
                                     processes request
@@ -131,8 +131,15 @@ stdout scanner receives line    ◄── MCP server writes to own stdout
 
 **Key details:**
 - Buffer is 1 MiB per line to handle large tool schemas.
-- Extra environment variables (e.g. `DATABASE_URL`) are passed via `Env` field on the model.
+- Non-JSON lines (sbx startup banners, tool init logs) are filtered in `readLoop` before reaching the engine's JSON-RPC parser — prevents timeout during `ListTools`.
+- Extra environment variables (e.g. `DATABASE_URL`) are passed via `env_vars` field on the model.
 - The process is killed (`Process.Kill`) on `Close()`, not gracefully terminated — suitable for short-lived dispatch connections.
+
+**Security model:**
+- Only `sbx` is accepted as the entry-point executable — arbitrary `npx`, `node`, `python`, `docker` calls are rejected.
+- Only `sbx exec` and `sbx run` subcommands are permitted.
+- Dangerous flags (`--privileged`, `--network=host`, `--pid=host`, `--ipc=host`, `--cap-add=*`, `--device=*`, `--security-opt=*`) are rejected at registration time.
+- Volume mounts (`--mount`, `-v`) are validated: path traversal and sensitive host directories (`/etc`, `/proc`, `/sys`, `/dev`, `/root`, `/var`, …) are blocked.
 
 ### SSE Transport
 
@@ -240,7 +247,7 @@ type MCPServer struct {
     ID        string    // UUID v4
     Name      string    // unique, human-readable label
     Transport string    // "stdio" | "sse"
-    Command   string    // stdio: full shell command, e.g. "npx -y @mcp/server-postgres postgres://..."
+    Command   []string  // stdio: argv tokens, e.g. ["sbx","exec","npx","-y","@mcp/server-postgres","postgres://..."]
     URL       string    // sse: base URL, e.g. "https://mcp.example.com"
     EnvVars   string    // JSON object {"KEY":"VALUE"} — env vars for stdio, headers for sse
     Active    bool      // false = excluded from dispatch without deletion
@@ -257,7 +264,6 @@ type MCPServer struct {
 |---|---|
 | `GetEnvVars() map[string]string` | Deserialises `EnvVars` JSON field. |
 | `SetEnvVars(map[string]string) error` | Serialises env vars into `EnvVars`. |
-| `CommandTokens() []string` | Splits `Command` into tokens for `exec.Command`, respecting quoted strings. |
 | `EnvSlice() []string` | Returns `["KEY=VALUE", ...]` format for `exec.Cmd.Env`. |
 
 **Junction table:** `colmeia_mcp_servers` (GORM many2many, auto-migrated).
@@ -417,14 +423,25 @@ handleColmeiaDispatch
 
 **POST /api/mcp-servers**
 
+`command` is a JSON array of argv tokens. The first element must be `"sbx"` and the second must be `"exec"` or `"run"`.
+
 ```json
 {
   "name": "postgres-prod",
   "transport": "stdio",
-  "command": "npx -y @modelcontextprotocol/server-postgres postgres://user:pass@localhost/mydb",
+  "command": ["sbx", "exec", "npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://user:pass@localhost/mydb"],
   "env_vars": {
     "NODE_ENV": "production"
   },
+  "active": true
+}
+```
+
+```json
+{
+  "name": "sqlite-mcp",
+  "transport": "stdio",
+  "command": ["sbx", "exec", "npx", "-y", "@modelcontextprotocol/server-sqlite", "/workspace/database.db"],
   "active": true
 }
 ```
@@ -453,22 +470,16 @@ handleColmeiaDispatch
 
 ## Docker Requirements
 
-For **stdio transport** the Jandaira runtime image must have Node.js available, since most MCP servers are distributed as npm packages launched via `npx`.
+For **stdio transport** all MCP servers run inside a Docker sandbox via `sbx`. The Jandaira host only needs the `sbx` CLI installed — Node.js, Python, or any other runtime required by the MCP server runs inside the isolated container, not on the host.
 
-Add to the final stage of your `Dockerfile`:
-
-```dockerfile
-# Install Node.js and npm so npx can launch MCP stdio servers.
-RUN apk add --update nodejs npm
-```
-
-For Alpine-based images. For Debian/Ubuntu-based images:
+Install `sbx` on the host (or Jandaira container image):
 
 ```dockerfile
-RUN apt-get update && apt-get install -y nodejs npm && rm -rf /var/lib/apt/lists/*
+# Install sbx CLI for sandboxed MCP server execution.
+RUN curl -fsSL https://raw.githubusercontent.com/e2b-dev/E2B/main/packages/cli/install.sh | sh
 ```
 
-Python-based MCP servers (`uv run` / `python -m`) require Python 3 to be installed instead of (or in addition to) Node.js.
+The `sbx exec` command pulls and runs the appropriate container image on demand — no runtime dependencies are needed on the Jandaira host itself.
 
 ---
 
@@ -482,7 +493,7 @@ curl -X POST http://localhost:8080/api/mcp-servers \
   -d '{
     "name": "postgres-analytics",
     "transport": "stdio",
-    "command": "npx -y @modelcontextprotocol/server-postgres postgres://analyst:secret@db:5432/analytics",
+    "command": ["sbx", "exec", "npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://analyst:secret@db:5432/analytics"],
     "active": true
   }'
 ```
@@ -527,7 +538,7 @@ curl -X PUT http://localhost:8080/api/mcp-servers/{id} \
   -d '{
     "name": "postgres-analytics",
     "transport": "stdio",
-    "command": "npx -y @modelcontextprotocol/server-postgres postgres://...",
+    "command": ["sbx", "exec", "npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://..."],
     "active": false
   }'
 ```
