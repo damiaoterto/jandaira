@@ -27,7 +27,7 @@ type Colmeia struct {
 	Historico        []HistoricoDespacho `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"historico,omitempty"`
 	OutboundWebhooks []OutboundWebhook   `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"outbound_webhooks,omitempty"`
 	Skills           []Skill             `gorm:"many2many:colmeia_skills;"                            json:"skills,omitempty"`
-	MCPServers       []MCPServer         `gorm:"many2many:colmeia_mcp_servers;"                       json:"mcp_servers,omitempty"`
+	MCPServers       []MCPServer         `gorm:"foreignKey:ColmeiaID;constraint:OnDelete:CASCADE"     json:"mcp_servers,omitempty"`
 }
 
 func (c *Colmeia) BeforeCreate(_ *gorm.DB) error {

@@ -26,11 +26,11 @@
 
 ## Overview
 
-The MCP Engine allows each Jandaira **Colmeia** (hive) to connect to one or more external [Model Context Protocol](https://modelcontextprotocol.io/) servers. The relationship is **many-to-many**: one colmeia can use many MCP servers, and one MCP server can be shared across many colmeias.
+The MCP Engine allows each Jandaira **Colmeia** (hive) to connect to one or more external [Model Context Protocol](https://modelcontextprotocol.io/) servers. The relationship is **one-to-many**: one colmeia owns many MCP servers, and each MCP server belongs to exactly one colmeia.
 
 When a dispatch is triggered, the engine:
 
-1. Starts live connections to every active MCP server linked to the colmeia.
+1. Starts live connections to every active MCP server belonging to the colmeia.
 2. Calls `tools/list` on each server and wraps the results as native `tool.Tool` implementations.
 3. Registers those tools as **group-scoped** tools on the Queen, visible only during that colmeia's dispatch.
 4. After the workflow finishes (or fails), closes the connections and deregisters the tools.
@@ -245,7 +245,8 @@ Example: server `postgres-prod`, tool `query` → registered as `postgres_prod_q
 ```go
 type MCPServer struct {
     ID        string    // UUID v4
-    Name      string    // unique, human-readable label
+    ColmeiaID string    // FK → colmeias.id (ON DELETE CASCADE)
+    Name      string    // unique within the colmeia
     Transport string    // "stdio" | "sse"
     Command   []string  // stdio: argv tokens, e.g. ["sbx","exec","npx","-y","@mcp/server-postgres","postgres://..."]
     URL       string    // sse: base URL, e.g. "https://mcp.example.com"
@@ -253,10 +254,10 @@ type MCPServer struct {
     Active    bool      // false = excluded from dispatch without deletion
     CreatedAt time.Time
     UpdatedAt time.Time
-
-    Colmeias  []Colmeia `gorm:"many2many:colmeia_mcp_servers;"`
 }
 ```
+
+Each `MCPServer` belongs to exactly one `Colmeia`. Deleting a colmeia cascade-deletes all its MCP servers. The composite unique index `(colmeia_id, name)` prevents duplicate server names within the same hive while allowing reuse of the same name across different hives.
 
 **Helper methods:**
 
@@ -265,8 +266,6 @@ type MCPServer struct {
 | `GetEnvVars() map[string]string` | Deserialises `EnvVars` JSON field. |
 | `SetEnvVars(map[string]string) error` | Serialises env vars into `EnvVars`. |
 | `EnvSlice() []string` | Returns `["KEY=VALUE", ...]` format for `exec.Cmd.Env`. |
-
-**Junction table:** `colmeia_mcp_servers` (GORM many2many, auto-migrated).
 
 ---
 
@@ -278,31 +277,23 @@ type MCPServer struct {
 type MCPServerRepository interface {
     Create(s *model.MCPServer) error
     FindByID(id string) (*model.MCPServer, error)
-    FindAll() ([]model.MCPServer, error)
+    FindByColmeiaID(colmeiaID string) ([]model.MCPServer, error)
     Update(s *model.MCPServer) error
     Delete(id string) error
-
-    AttachToColmeia(serverID, colmeiaID string) error
-    DetachFromColmeia(serverID, colmeiaID string) error
-    FindByColmeiaID(colmeiaID string) ([]model.MCPServer, error)
 }
 ```
 
-`FindByColmeiaID` uses GORM `Preload("MCPServers")` on the `Colmeia` model to resolve the many-to-many join.
+`FindByColmeiaID` queries `WHERE colmeia_id = ?` directly — no join table needed.
 
 ### Service — `internal/service/mcp_server.go`
 
 ```go
 type MCPServerService interface {
-    Create(name, transport, command, url string, envVars map[string]string, active bool) (*model.MCPServer, error)
+    Create(colmeiaID, name, transport, command, url string, envVars map[string]string, active bool) (*model.MCPServer, error)
     GetByID(id string) (*model.MCPServer, error)
-    List() ([]model.MCPServer, error)
+    ListForColmeia(colmeiaID string) ([]model.MCPServer, error)
     Update(id, name, transport, command, url string, envVars map[string]string, active bool) (*model.MCPServer, error)
     Delete(id string) error
-
-    AttachToColmeia(serverID, colmeiaID string) error
-    DetachFromColmeia(serverID, colmeiaID string) error
-    ListForColmeia(colmeiaID string) ([]model.MCPServer, error)
 
     StartEnginesForColmeia(ctx context.Context, colmeiaID string) ([]tool.Tool, []*mcp.Engine, error)
 }
@@ -311,7 +302,7 @@ type MCPServerService interface {
 **`StartEnginesForColmeia`** is the core method for dispatch integration:
 
 ```
-For each active MCPServer linked to colmeiaID:
+For each active MCPServer belonging to colmeiaID:
   1. Build transport (StdioTransport or SSETransport)
   2. Create Engine, call Start(ctx)  ← 30s timeout recommended
   3. Call ListTools(ctx)
@@ -401,27 +392,19 @@ handleColmeiaDispatch
 
 ## REST API Reference
 
-### Global MCP Server Management
+All MCP server management is **scoped to a colmeia**. There is no global MCP server catalogue.
 
 | Method | Route | Description |
 |---|---|---|
-| `GET` | `/api/mcp-servers` | List all configured MCP servers. |
-| `POST` | `/api/mcp-servers` | Create a new MCP server configuration. |
-| `GET` | `/api/mcp-servers/:id` | Get a single MCP server. |
-| `PUT` | `/api/mcp-servers/:id` | Update an MCP server configuration. |
-| `DELETE` | `/api/mcp-servers/:id` | Delete an MCP server configuration. |
-
-### Colmeia ↔ MCP Server Association
-
-| Method | Route | Description |
-|---|---|---|
-| `GET` | `/api/colmeias/:id/mcp-servers` | List MCP servers linked to a hive. |
-| `POST` | `/api/colmeias/:id/mcp-servers` | Attach an MCP server to a hive. |
-| `DELETE` | `/api/colmeias/:id/mcp-servers/:serverId` | Detach an MCP server from a hive. |
+| `GET` | `/api/colmeias/:id/mcp-servers` | List MCP servers belonging to a hive. |
+| `POST` | `/api/colmeias/:id/mcp-servers` | Create a new MCP server inside a hive. |
+| `GET` | `/api/colmeias/:id/mcp-servers/:serverId` | Get a single MCP server. |
+| `PUT` | `/api/colmeias/:id/mcp-servers/:serverId` | Update an MCP server configuration. |
+| `DELETE` | `/api/colmeias/:id/mcp-servers/:serverId` | Delete an MCP server from a hive. |
 
 ### Request Bodies
 
-**POST /api/mcp-servers**
+**POST /api/colmeias/:id/mcp-servers**
 
 `command` is a JSON array of argv tokens. The first element must be `"sbx"` and the second must be `"exec"` or `"run"`.
 
@@ -458,14 +441,6 @@ handleColmeiaDispatch
 }
 ```
 
-**POST /api/colmeias/:id/mcp-servers**
-
-```json
-{
-  "mcp_server_id": "550e8400-e29b-41d4-a716-446655440000"
-}
-```
-
 ---
 
 ## Docker Requirements
@@ -485,10 +460,10 @@ The `sbx exec` command pulls and runs the appropriate container image on demand 
 
 ## Usage Examples
 
-### 1. Create a PostgreSQL MCP server
+### 1. Create a PostgreSQL MCP server inside a hive
 
 ```bash
-curl -X POST http://localhost:8080/api/mcp-servers \
+curl -X POST http://localhost:8080/api/colmeias/{colmeia-id}/mcp-servers \
   -H "Content-Type: application/json" \
   -d '{
     "name": "postgres-analytics",
@@ -498,15 +473,7 @@ curl -X POST http://localhost:8080/api/mcp-servers \
   }'
 ```
 
-### 2. Attach it to a colmeia
-
-```bash
-curl -X POST http://localhost:8080/api/colmeias/{colmeia-id}/mcp-servers \
-  -H "Content-Type: application/json" \
-  -d '{"mcp_server_id": "{mcp-server-id}"}'
-```
-
-### 3. Dispatch a goal — MCP tools load automatically
+### 2. Dispatch a goal — MCP tools load automatically
 
 ```bash
 curl -X POST http://localhost:8080/api/colmeias/{colmeia-id}/dispatch \
@@ -516,10 +483,29 @@ curl -X POST http://localhost:8080/api/colmeias/{colmeia-id}/dispatch \
 
 The Queen will see tools like `postgres_analytics_query` and `postgres_analytics_list_tables` in its tool listing and may assign them to a specialist agent.
 
-### 4. Remote SSE server with auth header
+### 3. List MCP servers for a hive
 
 ```bash
-curl -X POST http://localhost:8080/api/mcp-servers \
+curl http://localhost:8080/api/colmeias/{colmeia-id}/mcp-servers
+```
+
+### 4. Update an MCP server
+
+```bash
+curl -X PUT http://localhost:8080/api/colmeias/{colmeia-id}/mcp-servers/{server-id} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "postgres-analytics",
+    "transport": "stdio",
+    "command": ["sbx", "exec", "npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://..."],
+    "active": false
+  }'
+```
+
+### 5. Remote SSE server with auth header
+
+```bash
+curl -X POST http://localhost:8080/api/colmeias/{colmeia-id}/mcp-servers \
   -H "Content-Type: application/json" \
   -d '{
     "name": "github-mcp",
@@ -530,17 +516,10 @@ curl -X POST http://localhost:8080/api/mcp-servers \
   }'
 ```
 
-### 5. Disable an MCP server without deleting it
+### 6. Delete an MCP server
 
 ```bash
-curl -X PUT http://localhost:8080/api/mcp-servers/{id} \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "postgres-analytics",
-    "transport": "stdio",
-    "command": ["sbx", "exec", "npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://..."],
-    "active": false
-  }'
+curl -X DELETE http://localhost:8080/api/colmeias/{colmeia-id}/mcp-servers/{server-id}
 ```
 
 ---
@@ -557,16 +536,16 @@ internal/mcp/
 └── adapter.go            # MCPToolAdapter — bridges Engine to tool.Tool
 
 internal/model/
-└── mcp_server.go         # MCPServer GORM entity + helpers
+└── mcp_server.go         # MCPServer GORM entity + helpers (ColmeiaID FK)
 
 internal/repository/
-└── mcp_server.go         # CRUD + many-to-many helpers
+└── mcp_server.go         # CRUD scoped by ColmeiaID
 
 internal/service/
 └── mcp_server.go         # Business logic + StartEnginesForColmeia
 
 internal/api/
-└── mcp_handler.go        # HTTP handlers for MCP CRUD and colmeia association
+└── mcp_handler.go        # HTTP handlers — colmeia-scoped CRUD
 
 internal/swarm/
 └── queen.go              # GroupTools, EquipGroupTool, AssembleSwarmForGroup

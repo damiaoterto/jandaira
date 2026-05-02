@@ -10,27 +10,26 @@ import (
 const (
 	MCPTransportStdio = "stdio"
 	MCPTransportSSE   = "sse"
+	MCPTransportHTTP  = "http" // Streamable HTTP — MCP spec 2025-03-26 (Context7, etc.)
 )
 
 // MCPServer stores the connection configuration for an external MCP server.
-// It has a many-to-many relationship with Colmeia: one colmeia can use many
-// MCP servers, and one MCP server can be shared across many colmeias.
+// Each MCPServer belongs to exactly one Colmeia (one-to-many).
 type MCPServer struct {
-	ID        string   `gorm:"primaryKey;type:varchar(36)"           json:"id"`
-	Name      string   `gorm:"type:varchar(150);not null;uniqueIndex" json:"name"`
-	Transport string   `gorm:"type:varchar(10);not null"             json:"transport"` // stdio | sse
+	ID        string   `gorm:"primaryKey;type:varchar(36)"                                    json:"id"`
+	ColmeiaID string   `gorm:"type:varchar(36);index;not null;uniqueIndex:idx_mcp_col_name"   json:"colmeia_id"`
+	Name      string   `gorm:"type:varchar(150);not null;uniqueIndex:idx_mcp_col_name"        json:"name"`
+	Transport string   `gorm:"type:varchar(10);not null"                                      json:"transport"` // stdio | sse
 	// Command holds the argv for stdio transport: ["sbx","exec","npx","-y","@mcp/server-sqlite"].
 	// Stored as a JSON array in the database via GORM's json serializer.
-	Command   []string `gorm:"type:text;serializer:json"             json:"command,omitempty"`
+	Command   []string `gorm:"type:text;serializer:json"  json:"command,omitempty"`
 	// URL is the base URL of the remote SSE server.
-	URL       string   `gorm:"type:varchar(500)"                     json:"url,omitempty"`
+	URL       string   `gorm:"type:varchar(500)"          json:"url,omitempty"`
 	// EnvVars stores additional environment variables as a JSON object {"KEY":"VALUE"}.
-	EnvVars   string   `gorm:"type:text;default:'{}'"                json:"env_vars,omitempty"`
-	Active    bool     `gorm:"not null;default:true"                 json:"active"`
-	CreatedAt time.Time `                                             json:"created_at"`
-	UpdatedAt time.Time `                                             json:"updated_at"`
-
-	Colmeias []Colmeia `gorm:"many2many:colmeia_mcp_servers;" json:"colmeias,omitempty"`
+	EnvVars   string   `gorm:"type:text;default:'{}'"     json:"env_vars,omitempty"`
+	Active    bool     `gorm:"not null;default:true"      json:"active"`
+	CreatedAt time.Time `                                  json:"created_at"`
+	UpdatedAt time.Time `                                  json:"updated_at"`
 }
 
 func (m *MCPServer) BeforeCreate(_ *gorm.DB) error {

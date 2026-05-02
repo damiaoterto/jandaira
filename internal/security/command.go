@@ -30,9 +30,12 @@ var forbiddenFlagPrefixes = []string{
 
 // ValidateSbxCommand validates that a stdio MCP command token slice is safe to execute.
 //
-// Rules enforced:
-//   - tokens[0] must be exactly "sbx" (forces Docker sandbox isolation).
-//   - tokens[1] must be "exec" or "run" (blocks sbx shell, sbx push, etc.).
+// Accepted entry-point executables:
+//
+//   - "sbx"    — E2B sandbox CLI. Subcommands "exec" and "run" allowed.
+//   - "docker" — Docker CLI. Only "run" subcommand allowed.
+//
+// Common rules for both:
 //   - Dangerous flags (--privileged, --network=host, --pid=host, …) are rejected.
 //   - Volume/mount paths are checked for path traversal and sensitive host dirs.
 func ValidateSbxCommand(tokens []string) error {
@@ -40,34 +43,47 @@ func ValidateSbxCommand(tokens []string) error {
 		return fmt.Errorf("command is required for stdio transport")
 	}
 
-	if tokens[0] != "sbx" {
+	switch tokens[0] {
+	case "sbx":
+		return validateSbxTokens(tokens)
+	case "docker":
+		return validateDockerTokens(tokens)
+	default:
 		return fmt.Errorf(
-			"security violation: executable %q is not allowed; only \"sbx\" is permitted — all MCP servers must run inside an isolated sandbox",
+			"security violation: executable %q is not allowed; permitted executables: \"sbx\", \"docker\"",
 			tokens[0],
 		)
 	}
+}
 
+func validateSbxTokens(tokens []string) error {
 	if len(tokens) < 2 {
 		return fmt.Errorf("security violation: sbx requires a subcommand (exec or run)")
 	}
-
 	switch tokens[1] {
 	case "exec", "run":
-		// allowed subcommands
 	default:
 		return fmt.Errorf(
 			"security violation: sbx subcommand %q is not allowed; use \"exec\" or \"run\"",
 			tokens[1],
 		)
 	}
-
 	if len(tokens) < 3 {
 		return fmt.Errorf(
 			"security violation: sbx %s requires at least one argument (image or command)",
 			tokens[1],
 		)
 	}
+	return validateSbxArguments(tokens[2:])
+}
 
+func validateDockerTokens(tokens []string) error {
+	if len(tokens) < 2 || tokens[1] != "run" {
+		return fmt.Errorf("security violation: docker subcommand must be \"run\"")
+	}
+	if len(tokens) < 3 {
+		return fmt.Errorf("security violation: docker run requires an image argument")
+	}
 	return validateSbxArguments(tokens[2:])
 }
 

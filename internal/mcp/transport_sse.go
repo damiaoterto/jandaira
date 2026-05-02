@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -14,12 +15,15 @@ import (
 // SSETransport connects to a remote MCP server that uses the HTTP+SSE transport.
 //
 // Protocol:
-//  1. Client opens GET {BaseURL}/sse → server streams SSE events.
+//  1. Client opens GET {URL} → server streams SSE events.
 //  2. First SSE event type "endpoint" carries the POST URL for sending messages.
 //  3. Subsequent SSE events type "message" carry JSON-RPC responses.
 //  4. Client sends JSON-RPC requests via POST to the endpoint URL.
+//
+// URL must be the exact SSE endpoint (e.g. "https://mcp.example.com/sse" or
+// "https://mcp.context7.com/mcp"). No path is appended automatically.
 type SSETransport struct {
-	// BaseURL is the root URL of the MCP server (e.g. "https://mcp.example.com").
+	// BaseURL is the exact SSE endpoint URL.
 	BaseURL string
 	// Headers are extra HTTP headers sent on every request (e.g. Authorization).
 	Headers map[string]string
@@ -54,11 +58,21 @@ func (t *SSETransport) Start(ctx context.Context) error {
 	// Block until we receive the POST endpoint or an error.
 	select {
 	case endpoint := <-endpointCh:
-		if !strings.HasPrefix(endpoint, "http") {
-			// Relative path — resolve against BaseURL.
-			t.postURL = t.BaseURL + "/" + strings.TrimLeft(endpoint, "/")
-		} else {
+		if strings.HasPrefix(endpoint, "http") {
 			t.postURL = endpoint
+		} else {
+			// Relative path — resolve against the SSE URL's origin.
+			base, err := url.Parse(t.BaseURL)
+			if err != nil {
+				cancel()
+				return fmt.Errorf("mcp sse: invalid base URL: %w", err)
+			}
+			ref, err := url.Parse(endpoint)
+			if err != nil {
+				cancel()
+				return fmt.Errorf("mcp sse: invalid endpoint path %q: %w", endpoint, err)
+			}
+			t.postURL = base.ResolveReference(ref).String()
 		}
 		return nil
 	case err := <-errCh:
@@ -106,11 +120,11 @@ func (t *SSETransport) Close() error {
 	return nil
 }
 
-// sseLoop opens the /sse endpoint and processes events.
+// sseLoop opens the SSE endpoint and processes events.
 func (t *SSETransport) sseLoop(ctx context.Context, endpointCh chan<- string, errCh chan<- error) {
 	defer close(t.outChan)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.BaseURL+"/sse", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.BaseURL, nil)
 	if err != nil {
 		errCh <- err
 		return
@@ -129,7 +143,7 @@ func (t *SSETransport) sseLoop(ctx context.Context, endpointCh chan<- string, er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		errCh <- fmt.Errorf("mcp sse: GET /sse returned %d", resp.StatusCode)
+		errCh <- fmt.Errorf("mcp sse: GET %s returned %d", t.BaseURL, resp.StatusCode)
 		return
 	}
 

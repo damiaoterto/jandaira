@@ -204,16 +204,6 @@ func (s *Server) Start() error {
 			webhooks.DELETE("/:id", s.handleDeleteWebhook)
 		}
 
-		// MCP server routes (global catalogue of MCP integrations)
-		mcpServers := api.Group("/mcp-servers")
-		{
-			mcpServers.GET("", s.handleListMCPServers)
-			mcpServers.POST("", s.handleCreateMCPServer)
-			mcpServers.GET("/:id", s.handleGetMCPServer)
-			mcpServers.PUT("/:id", s.handleUpdateMCPServer)
-			mcpServers.DELETE("/:id", s.handleDeleteMCPServer)
-		}
-
 		// Skill routes (catálogo global de skills reutilizáveis)
 		skills := api.Group("/skills")
 		{
@@ -253,10 +243,12 @@ func (s *Server) Start() error {
 			colmeias.POST("/:id/skills", s.handleAttachSkillToColmeia)
 			colmeias.DELETE("/:id/skills/:skillId", s.handleDetachSkillFromColmeia)
 
-			// MCP servers associados à colmeia
+			// MCP servers da colmeia (CRUD escoped à colmeia)
 			colmeias.GET("/:id/mcp-servers", s.handleListColmeiaMCPServers)
-			colmeias.POST("/:id/mcp-servers", s.handleAttachMCPServerToColmeia)
-			colmeias.DELETE("/:id/mcp-servers/:serverId", s.handleDetachMCPServerFromColmeia)
+			colmeias.POST("/:id/mcp-servers", s.handleCreateColmeiaMCPServer)
+			colmeias.GET("/:id/mcp-servers/:serverId", s.handleGetColmeiaMCPServer)
+			colmeias.PUT("/:id/mcp-servers/:serverId", s.handleUpdateColmeiaMCPServer)
+			colmeias.DELETE("/:id/mcp-servers/:serverId", s.handleDeleteColmeiaMCPServer)
 
 			agentes := colmeias.Group("/:id/agentes")
 			{
