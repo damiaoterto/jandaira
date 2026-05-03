@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Removed
+
+- **MCP Engine** (`internal/mcp/`, `internal/model/mcp_server.go`, `internal/repository/mcp_server.go`, `internal/service/mcp_server.go`, `internal/api/mcp_handler.go`, `internal/security/command.go`, `scripts/setup-sandbox.sh`): Model Context Protocol integration removed entirely. All MCP-related REST routes (`GET/POST/PUT/DELETE /api/colmeias/:id/mcp-servers`), the `MCPServer` database model, the `GroupTools` per-colmeia tool registry on the Queen (`EquipGroupTool`, `UnequipGroupTool`, `AssembleSwarmForGroup`), and the sandbox command security validator are removed. `AssembleSwarm` is now standalone and reads from the global `Tools` map directly. `docs/mcp-engine.md` replaced with removal notice.
+
 ### Added
 
 - **`GeminiBrain` implements `StructuredBrain`** (`internal/brain/gemini.go`): added `ChatJSON` method using Gemini's native structured output (`ResponseMIMEType: "application/json"` + `ResponseSchema`). The Queen now uses structured output for swarm planning when Gemini is the active brain, instead of falling back to regex-based JSON sanitization.
@@ -16,37 +20,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ### Fixed
 
-- **MCP stdio commands stored with sandbox wrapper** (`internal/service/mcp_server.go`): `Create` and `Update` called `wrapSandboxCommand` before persisting, so the `sbx exec -i mcp-base …` prefix was written to the database. Subsequent updates doubled the prefix. Fixed: `stripSandboxWrapper` is now called before persistence; `wrapSandboxCommand` is applied only in `buildTransport` at connection time. Both `sbx` and `docker run` wrappers are stripped/re-applied transparently.
-
-- **MCP tool names with hyphens broke LLM tool invocation** (`internal/mcp/adapter.go`): `MCPToolAdapter.Name()` sanitized only the server-name prefix, leaving the tool name part unsanitised (e.g. `context7_resolve-library-id`). LLMs struggled to reproduce hyphenated names reliably in structured outputs. Both parts are now fully sanitised so the qualified name is always underscore-only (e.g. `context7_resolve_library_id`).
-
-- **DSML-parsed tool names not resolved in Queen** (`internal/swarm/queen.go`): when a model returned DSML-embedded tool calls, the parsed name (e.g. `"resolve-library-id"`) did not match any registered tool key. Added suffix-match fallback with hyphen-normalisation so `"resolve-library-id"` resolves to `"context7_resolve_library_id"`, mirroring the logic in `matchDSMLToolName`.
-
-- **Specialist received empty tool list when `AllowedTools` was unresolvable** (`internal/swarm/queen.go`): if the Queen's planning LLM listed tool names that no longer matched after sanitisation, `availableTools` was empty and the specialist had no tools. Added safety net: when `availableTools` is empty after resolving `AllowedTools`, all group-scoped tools (e.g. MCP adapters) are injected automatically so the specialist can still function.
-
-- **`context deadline exceeded` during MCP workflows** (`internal/brain/open_router.go`, `internal/brain/groq.go`, `internal/brain/open_ai.go`): all three HTTP-based brains had a hard client-level timeout (90 s for OpenRouter, 60 s for Groq and OpenAI) that fired before slow models (DeepSeek, o1, o3) could respond. Removed the client-level `Timeout` from all three; deadline is now controlled exclusively by the caller's context (typically the 10-minute workflow context).
+- **`context deadline exceeded` during long-running workflows** (`internal/brain/open_router.go`, `internal/brain/groq.go`, `internal/brain/open_ai.go`): all three HTTP-based brains had a hard client-level timeout (90 s for OpenRouter, 60 s for Groq and OpenAI) that fired before slow models (DeepSeek, o1, o3) could respond. Removed the client-level `Timeout` from all three; deadline is now controlled exclusively by the caller's context (typically the 10-minute workflow context).
 
 ### Changed
 
 - **`OpenRouterBrain` DSML log reduced** (`internal/brain/open_router.go`): the per-call log that included 150-character content previews replaced by a single count line (`[openrouter] DSML parse: extracted N tool call(s)`). The "no tool_calls, no DSML" noise log removed entirely.
 
-- **MCP Engine `ListTools` log removed** (`internal/mcp/engine.go`): the per-tool `inputSchema` dump logged on every `tools/list` call removed; it was verbose at startup and not useful in production.
-
 - **Queen per-iteration log removed** (`internal/swarm/queen.go`): the `🔍 [specialist] iter=N tokens=N toolCalls=N contentLen=N` line logged on every LLM turn removed; nectar accounting and tool-call counts are still tracked internally.
-
-### Added
-
-- **MCP Engine** (`internal/mcp/`, `internal/model/mcp_server.go`, `internal/repository/mcp_server.go`, `internal/service/mcp_server.go`, `internal/api/mcp_handler.go`): full Model Context Protocol client implementation. Colmeias can now connect to one or more external MCP servers (many-to-many). Two transports supported:
-  - **Stdio** (`transport_stdio.go`): launches the MCP server as a child process (e.g. `npx -y @mcp/server-postgres`) and communicates via newline-delimited JSON-RPC over stdin/stdout. Suitable for local tools, databases, filesystems.
-  - **SSE** (`transport_sse.go`): connects to a remote HTTP+SSE server. Client GETs `/sse`, receives the `endpoint` event, then POSTs JSON-RPC requests to that URL. Supports `Authorization` and custom headers via `env_vars`.
-  - **Engine** (`engine.go`): JSON-RPC 2.0 client with atomic ID counter, pending-response map, and background receive loop. Runs the MCP initialize handshake on `Start()`, then exposes `ListTools`, `ListResources`, and `CallTool`.
-  - **Tool Adapter** (`adapter.go`): wraps each MCP tool as `tool.Tool` with qualified name `{serverName}_{toolName}`. Description prefixed with `[MCP:{serverName}]`. Arguments and results are transparently marshalled/unmarshalled.
-  - **MCPServer model**: SQLite entity with fields `name`, `transport`, `command`, `url`, `env_vars` (JSON), `active`. Many-to-many with `Colmeia` via `colmeia_mcp_servers` junction table. Helper methods: `CommandTokens()`, `EnvSlice()`, `GetEnvVars()`, `SetEnvVars()`.
-  - **GroupTools on Queen** (`internal/swarm/queen.go`): new `GroupTools map[string]map[string]tool.Tool` field. `EquipGroupTool(groupID, t)` / `UnequipGroupTool(groupID, name)` register per-colmeia tools without polluting the global tool registry. `AssembleSwarmForGroup(ctx, goal, maxWorkers, groupID)` merges global and group tools when building the specialist plan. `runSpecialist` resolves tool calls from the merged map. `AssembleSwarm` (existing signature) is unchanged and delegates to `AssembleSwarmForGroup` with empty groupID.
-  - **Dispatch integration** (`internal/api/colmeia_handler.go`): MCP engines are started before `AssembleSwarmForGroup` so the LLM sees MCP tools during meta-planning. Engines are stopped and group tools deregistered after the workflow completes (via `defer`), regardless of outcome.
-  - **New REST routes**: `GET/POST /api/mcp-servers`, `GET|PUT|DELETE /api/mcp-servers/:id`, `GET/POST /api/colmeias/:id/mcp-servers`, `DELETE /api/colmeias/:id/mcp-servers/:serverId`.
-  - **Docker**: for stdio transport, the runtime image must have `nodejs` and `npm` installed (`apk add nodejs npm` on Alpine).
-  - **Docs**: `docs/mcp-engine.md` — full implementation guide with architecture diagrams, transport details, API reference, and usage examples.
 - **Gemini provider** (`internal/brain/gemini.go`): new `GeminiBrain` implements `Brain` using `google.golang.org/genai`. `Chat` supports tool calling with function call IDs; system instructions passed via `GenerateContentConfig.SystemInstruction`; tool schemas converted from JSON Schema to `genai.Schema` recursively. `Embed` uses `gemini-embedding-2` multimodal model. Default model `gemini-2.0-flash`. `POST /api/setup` with `"provider": "gemini"` stores `GEMINI_API_KEY` in vault and wires the brain to the Queen.
 - **Provider factory** (`internal/provider/providers.go`): new `provider` package centralises all LLM provider wiring. `BuildBrains` resolves the API key from env/vault and builds active + embed brains. `BuildBrainsWithKey` saves the key to vault, sets the env var, and builds brains — used by setup and config handlers. `DefaultModel` returns the canonical default model for a provider. `IsValid` reports whether a provider name is known.
 - **`POST /api/setup` — unknown-provider validation** (`internal/api/setup_handler.go`): request with an unrecognised `provider` value now returns `400 Bad Request` with `"Unknown provider: <value>"` instead of silently falling back to OpenAI.

@@ -41,9 +41,6 @@ type Queen struct {
 	Policies          map[string]Policy
 	NectarUsage       map[string]int
 	Tools             map[string]tool.Tool
-	// GroupTools holds per-group (per-colmeia) tools such as MCP adapters.
-	// They are merged with global Tools during swarm assembly and specialist execution.
-	GroupTools        map[string]map[string]tool.Tool
 	LogFunc           func(string)
 	AskPermissionFunc func(toolName string, args string)
 	AgentChangeFunc   func(agentName string)
@@ -59,7 +56,6 @@ func NewQueen(q *queue.GroupQueue, b brain.Brain, h brain.Honeycomb) *Queen {
 		Policies:     make(map[string]Policy),
 		NectarUsage:  make(map[string]int),
 		Tools:        make(map[string]tool.Tool),
-		GroupTools:   make(map[string]map[string]tool.Tool),
 		ApprovalChan: make(chan bool, 1),
 	}
 }
@@ -79,43 +75,6 @@ func (q *Queen) EquipTool(t tool.Tool) {
 	q.Tools[t.Name()] = t
 }
 
-// EquipGroupTool registers a tool for a specific swarm group (e.g. a colmeia).
-// Group tools are merged with global tools during swarm assembly and execution.
-func (q *Queen) EquipGroupTool(groupID string, t tool.Tool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if _, ok := q.GroupTools[groupID]; !ok {
-		q.GroupTools[groupID] = make(map[string]tool.Tool)
-	}
-	q.GroupTools[groupID][t.Name()] = t
-}
-
-// UnequipGroupTool removes a group-scoped tool by name.
-func (q *Queen) UnequipGroupTool(groupID, name string) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if group, ok := q.GroupTools[groupID]; ok {
-		delete(group, name)
-	}
-}
-
-// mergedToolsForGroup returns a snapshot map of global tools merged with any
-// group-specific tools. Group tools shadow global tools with the same name.
-func (q *Queen) mergedToolsForGroup(groupID string) map[string]tool.Tool {
-	q.mu.RLock()
-	defer q.mu.RUnlock()
-	merged := make(map[string]tool.Tool, len(q.Tools))
-	for k, v := range q.Tools {
-		merged[k] = v
-	}
-	if groupID != "" {
-		for k, v := range q.GroupTools[groupID] {
-			merged[k] = v
-		}
-	}
-	return merged
-}
-
 func (q *Queen) RegisterSwarm(groupID string, p Policy) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -131,18 +90,15 @@ func (q *Queen) IsSwarmRegistered(groupID string) bool {
 }
 
 // AssembleSwarm designs a specialist pipeline for the given goal using only
-// global tools. Use AssembleSwarmForGroup to include group-scoped tools.
 func (q *Queen) AssembleSwarm(ctx context.Context, goal string, maxWorkers int) ([]Specialist, error) {
-	return q.AssembleSwarmForGroup(ctx, goal, maxWorkers, "")
-}
-
-// AssembleSwarmForGroup designs a specialist pipeline and includes group-specific
-// tools (e.g. MCP adapters registered for a colmeia) in the tool listing shown
-// to the LLM.
-func (q *Queen) AssembleSwarmForGroup(ctx context.Context, goal string, maxWorkers int, groupID string) ([]Specialist, error) {
 	q.logf("🧠 The Queen is consulting the manuals and designing the swarm architecture...")
 
-	allTools := q.mergedToolsForGroup(groupID)
+	q.mu.RLock()
+	allTools := make(map[string]tool.Tool, len(q.Tools))
+	for k, v := range q.Tools {
+		allTools[k] = v
+	}
+	q.mu.RUnlock()
 
 	var availableToolsDesc []string
 	for name, t := range allTools {
@@ -339,7 +295,12 @@ func (q *Queen) DispatchWorkflow(ctx context.Context, groupID string, goal strin
 }
 
 func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Specialist, encryptedTaskContext string, sessionKey []byte, p Policy) (string, error) {
-	allTools := q.mergedToolsForGroup(groupID)
+	q.mu.RLock()
+	allTools := make(map[string]tool.Tool, len(q.Tools))
+	for k, v := range q.Tools {
+		allTools[k] = v
+	}
+	q.mu.RUnlock()
 
 	var availableTools []brain.ToolDefinition
 	for _, toolName := range spec.AllowedTools {
@@ -349,20 +310,6 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 			})
 		} else {
 			log.Printf("[queen] specialist %q: tool %q not found (registered=%v)", spec.Name, toolName, toolKeyList(allTools))
-		}
-	}
-	// Safety net: if queen assigned no tools but group-level MCP tools exist,
-	// inject them so the specialist can use documentation tools.
-	if len(availableTools) == 0 {
-		q.mu.RLock()
-		for _, t := range q.GroupTools[groupID] {
-			availableTools = append(availableTools, brain.ToolDefinition{
-				Name: t.Name(), Description: t.Description(), Parameters: t.Parameters(),
-			})
-		}
-		q.mu.RUnlock()
-		if len(availableTools) > 0 {
-			log.Printf("[queen] specialist %q: empty AllowedTools, injecting %d group tools", spec.Name, len(availableTools))
 		}
 	}
 

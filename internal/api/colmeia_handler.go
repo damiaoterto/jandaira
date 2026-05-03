@@ -425,44 +425,12 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 	// Inject collection name so agents can pass it explicitly to search_memory.
 	enrichedGoal = fmt.Sprintf("[HIVE MEMORY COLLECTION: %s]\n\n%s", groupID, enrichedGoal)
 
-	// Start MCP engines for this colmeia and equip their tools as group tools.
-	// Engines run for the entire workflow duration and are stopped in the goroutine.
-	mcpCtx, mcpCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer mcpCancel()
-
-	mcpTools, mcpEngines, mcpErr := s.mcpService.StartEnginesForColmeia(mcpCtx, colmeiaID)
-	if mcpErr != nil {
-		log.Printf("WARN handleColmeiaDispatch MCP engines colmeia=%s: %v", colmeiaID, mcpErr)
-		// Non-fatal: dispatch continues without MCP tools.
-	}
-	for _, t := range mcpTools {
-		s.Queen.EquipGroupTool(groupID, t)
-	}
-
-	stopMCPEngines := func() {
-		for _, t := range mcpTools {
-			s.Queen.UnequipGroupTool(groupID, t.Name())
-		}
-		for _, e := range mcpEngines {
-			_ = e.Close()
-		}
-	}
-
-	if len(mcpTools) > 0 {
-		s.Broadcast(WsMessage{
-			Type:    "status",
-			Message: fmt.Sprintf("🔌 %d MCP tool(s) loaded for hive '%s'.", len(mcpTools), colmeia.Name),
-		})
-	}
-
 	if colmeia.QueenManaged {
-		// Queen assembles the swarm automatically from the goal, including MCP tools.
 		assembleCtx, assembleCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer assembleCancel()
 
-		swarmSpecialists, err := s.Queen.AssembleSwarmForGroup(assembleCtx, enrichedGoal, maxWorkers, groupID)
+		swarmSpecialists, err := s.Queen.AssembleSwarm(assembleCtx, enrichedGoal, maxWorkers)
 		if err != nil {
-			stopMCPEngines()
 			_ = s.colmeiaService.FailHistorico(historico.ID)
 			log.Printf("ERROR handleColmeiaDispatch AssembleSwarm colmeia=%s: %v", colmeiaID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to plan the swarm: %v", err)})
@@ -475,8 +443,6 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 		})
 
 		go func() {
-			defer stopMCPEngines()
-
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 
@@ -517,7 +483,6 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 
 	// User-defined agents.
 	if len(colmeia.Agentes) == 0 {
-		stopMCPEngines()
 		_ = s.colmeiaService.FailHistorico(historico.ID)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Hive has no defined agents. Add agents via POST /api/colmeias/:id/agentes or enable queen_managed.",
@@ -533,8 +498,6 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 	})
 
 	go func() {
-		defer stopMCPEngines()
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 

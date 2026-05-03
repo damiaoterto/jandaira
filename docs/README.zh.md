@@ -140,43 +140,6 @@ graph LR
 
 ---
 
-## 🔌 MCP 集成（模型上下文协议）
-
-Jandaira 原生支持将每个蜂巢连接到一个或多个外部 MCP 服务器。每个 MCP 服务器属于一个蜂巢（一对多关系）。其工具在每次调度时自动发现并提供给女王使用。
-
-**支持的传输方式：**
-- **Stdio** — 通过 E2B 沙箱（`sbx exec mcp-base <cmd>`）以子进程方式启动 MCP 服务器。适用于数据库、文件系统和本地工具。命令数组由服务自动包装。
-- **SSE** — 通过 HTTP+SSE 连接到远程 MCP 服务器（MCP 协议 2024-11-05）。
-- **HTTP** — 通过 Streamable HTTP 连接到现代服务器（MCP 协议 2025-03-26）。例如 Context7。
-
-```bash
-# 1. 在蜂巢中创建 PostgreSQL MCP 服务器
-#    命令 ["npx", ...] 自动包装为 "sbx exec mcp-base npx ..."
-curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "postgres-analytics",
-    "transport": "stdio",
-    "command": ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://user:pass@localhost/db"],
-    "active": true
-  }'
-
-# 2. 调度任务 — MCP 工具自动加载
-#    女王看到 "postgres_analytics_query" 等工具并分配给专家
-curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
-  -H "Content-Type: application/json" \
-  -d '{"goal": "列出上个月的所有订单并计算总收入"}'
-
-# HTTP 传输的 MCP 服务器（例如 Context7）
-curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
-  -H "Content-Type: application/json" \
-  -d '{"name": "context7", "transport": "http", "url": "https://mcp.context7.com/mcp", "active": true}'
-```
-
-> 完整文档（英文）：[`docs/mcp-engine.md`](mcp-engine.md)
-
----
-
 ## 🪝 Webhook 引擎（轻松集成）
 
 您可以将 Jandaira 连接到 GitHub、Slack 等。当事件发生时，AI 会自动触发。
@@ -211,8 +174,6 @@ graph LR
 | **列出工具** | `GET /api/tools` | 查看 AI 能做什么。 |
 | **实时监控** | `GET /ws` | WebSocket，用于监控 AI 并批准操作。 |
 | **Webhooks** | `POST /api/webhooks/:slug` | 触发外部事件。 |
-| **蜂巢 MCP** | `GET/POST /api/colmeias/:id/mcp-servers` | 创建 / 列出蜂巢的 MCP 服务器。 |
-| **MCP（详情）** | `GET/PUT/DELETE /api/colmeias/:id/mcp-servers/:sid` | 查询、更新或删除 MCP 服务器。 |
 
 ---
 

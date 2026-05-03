@@ -140,43 +140,6 @@ graph LR
 
 ---
 
-## 🔌 Integraciones MCP (Model Context Protocol)
-
-Jandaira admite de forma nativa la conexión de cada colmena a uno o más servidores MCP externos. Cada servidor MCP pertenece a exactamente una colmena (uno a muchos). Sus herramientas se descubren automáticamente y quedan disponibles para la Reina en cada despacho.
-
-**Transportes compatibles:**
-- **Stdio** — lanza el servidor MCP como subproceso sandboxado vía E2B (`sbx exec mcp-base <cmd>`). Ideal para bases de datos, sistemas de archivos y herramientas locales. El array de comandos es auto-envuelto por el servicio.
-- **SSE** — conecta a servidores MCP remotos vía HTTP+SSE (protocolo MCP 2024-11-05).
-- **HTTP** — conecta a servidores modernos vía Streamable HTTP (protocolo MCP 2025-03-26). Ej.: Context7.
-
-```bash
-# 1. Crea un servidor MCP de PostgreSQL dentro de una colmena
-#    El comando ["npx", ...] se auto-envuelve como "sbx exec mcp-base npx ..."
-curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "postgres-analytics",
-    "transport": "stdio",
-    "command": ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://user:pass@localhost/db"],
-    "active": true
-  }'
-
-# 2. Despacha — las herramientas MCP se cargan automáticamente
-#    La Reina ve herramientas como "postgres_analytics_query" y las asigna a especialistas
-curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
-  -H "Content-Type: application/json" \
-  -d '{"goal": "Lista los pedidos del último mes y calcula el ingreso total"}'
-
-# Servidor MCP vía HTTP (ej.: Context7)
-curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
-  -H "Content-Type: application/json" \
-  -d '{"name": "context7", "transport": "http", "url": "https://mcp.context7.com/mcp", "active": true}'
-```
-
-> Documentación completa (en inglés): [`docs/mcp-engine.md`](mcp-engine.md)
-
----
-
 ## 🪝 Webhook Engine (Integraciones fáciles)
 
 Puedes conectar Jandaira a GitHub, Slack, etc. La IA se activa automáticamente cuando ocurre un evento.
@@ -211,8 +174,6 @@ graph LR
 | **Listar Herramientas** | `GET /api/tools` | Mira lo que las IAs pueden hacer. |
 | **Tiempo Real** | `GET /ws` | WebSocket para seguir a las IAs y aprobar acciones. |
 | **Webhooks** | `POST /api/webhooks/:slug` | Dispara un evento externo. |
-| **MCP de la colmena** | `GET/POST /api/colmeias/:id/mcp-servers` | Crea / lista servidores MCP de una colmena. |
-| **MCP (detalle)** | `GET/PUT/DELETE /api/colmeias/:id/mcp-servers/:sid` | Consulta, actualiza o elimina un servidor MCP. |
 
 ---
 

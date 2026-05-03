@@ -57,9 +57,6 @@ func main() {
 	outboundWebhookService := service.NewOutboundWebhookService(outboundWebhookRepo)
 	outboundWebhookService.Start(3)
 
-	mcpServerRepo := repository.NewMCPServerRepository(db)
-	mcpServerService := service.NewMCPServerService(mcpServerRepo)
-
 	cfg, err := cfgService.Load()
 	if err != nil && !errors.Is(err, service.ErrNotConfigured) {
 		fmt.Printf("Erro ao carregar configuração: %v\n", err)
@@ -143,7 +140,7 @@ func main() {
 		})
 	}
 
-	server := api.NewServer(queen, *port, cfgService, sessionService, colmeiaService, skillService, documentService, webhookService, outboundWebhookService, mcpServerService)
+	server := api.NewServer(queen, *port, cfgService, sessionService, colmeiaService, skillService, documentService, webhookService, outboundWebhookService)
 
 	queen.LogFunc = func(msg string) {
 		server.Broadcast(api.WsMessage{Type: "status", Message: msg})
