@@ -1814,8 +1814,10 @@ paths:
       summary: Create an MCP server inside a hive
       description: |
         Creates a new MCP server configuration owned by the hive.
-        `command` is a JSON array of argv tokens. The first element must be `"sbx"`
-        and the second must be `"exec"` or `"run"` (stdio transport only).
+        For `stdio` transport, `command` accepts either a raw runtime command
+        (e.g. `["npx", "-y", "@mcp/server-X"]`) or an already-wrapped sandbox
+        command. Raw commands are automatically wrapped as `sbx exec mcp-base <cmd>`
+        (default) or `docker run -i --rm <image> <cmd>` (when `MCP_SANDBOX=docker`).
         The server name must be unique within the hive.
       requestBody:
         required: true
@@ -1831,12 +1833,12 @@ paths:
                   transport: "http"
                   url: "https://mcp.context7.com/mcp"
                   active: true
-              postgres_docker:
-                summary: PostgreSQL via Docker (stdio)
+              postgres_sbx:
+                summary: PostgreSQL via sbx sandbox (stdio) — raw command auto-wrapped
                 value:
                   name: "postgres-analytics"
                   transport: "stdio"
-                  command: ["docker", "run", "--rm", "node:20-slim", "npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://user:pass@db:5432/analytics"]
+                  command: ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://user:pass@db:5432/analytics"]
                   active: true
               remote_sse:
                 summary: Legacy SSE server with auth header
@@ -2636,11 +2638,13 @@ components:
           items:
             type: string
           description: |
-            argv tokens for `stdio` transport. Permitted entry-point executables:
-            - `["sbx", "exec"|"run", ...]` — E2B sandbox CLI.
-            - `["docker", "run", ...]` — Docker container (recommended for local tools).
+            argv for `stdio` transport. Send either a raw runtime command or a
+            pre-wrapped sandbox command:
+            - Raw: `["npx", "-y", "@mcp/server-X"]` — auto-wrapped to `["sbx", "exec", "mcp-base", "npx", ...]`
+            - Pre-wrapped sbx: `["sbx", "exec", "mcp-base", "npx", ...]`
+            - Docker: `["docker", "run", "-i", "--rm", "node:22-alpine", "npx", ...]`
             Dangerous flags (`--privileged`, `--network=host`, etc.) are rejected.
-          example: ["docker", "run", "--rm", "node:20-slim", "npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://..."]
+          example: ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://..."]
         url:
           type: string
           description: |
@@ -2686,9 +2690,13 @@ components:
           items:
             type: string
           description: |
-            argv for `stdio` transport. Entry-point must be `"sbx"` or `"docker"`.
-            `docker run` example: `["docker", "run", "--rm", "node:20-slim", "npx", "-y", "@mcp/server-postgres", "postgres://..."]`
-          example: ["docker", "run", "--rm", "node:20-slim", "npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://..."]
+            argv for `stdio` transport. Send either a raw runtime command or a
+            pre-wrapped sandbox command:
+            - Raw: `["npx", "-y", "@mcp/server-X"]` — auto-wrapped to `["sbx", "exec", "mcp-base", "npx", ...]`
+            - Pre-wrapped sbx: `["sbx", "exec", "mcp-base", "npx", ...]`
+            - Docker: `["docker", "run", "-i", "--rm", "node:22-alpine", "npx", ...]`
+            Dangerous flags (`--privileged`, `--network=host`, etc.) are rejected.
+          example: ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://..."]
         url:
           type: string
           description: |

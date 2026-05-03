@@ -427,7 +427,7 @@ func (s *Server) handleColmeiaDispatch(c *gin.Context) {
 
 	// Start MCP engines for this colmeia and equip their tools as group tools.
 	// Engines run for the entire workflow duration and are stopped in the goroutine.
-	mcpCtx, mcpCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	mcpCtx, mcpCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer mcpCancel()
 
 	mcpTools, mcpEngines, mcpErr := s.mcpService.StartEnginesForColmeia(mcpCtx, colmeiaID)

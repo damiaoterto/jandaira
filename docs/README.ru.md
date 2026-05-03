@@ -142,32 +142,35 @@ graph LR
 
 ## 🔌 Интеграции MCP (Model Context Protocol)
 
-Jandaira поддерживает нативное подключение каждого улья к одному или нескольким внешним MCP-серверам. Связь **многие-ко-многим**: один улей может использовать несколько MCP-серверов, а один сервер — разделяться между несколькими ульями.
+Jandaira поддерживает нативное подключение каждого улья к одному или нескольким внешним MCP-серверам. Каждый MCP-сервер принадлежит ровно одному улью (один-ко-многим). Его инструменты автоматически обнаруживаются и становятся доступны Королеве при каждом деспетче.
 
 **Поддерживаемые транспорты:**
-- **Stdio** — запускает MCP-сервер как дочерний процесс (например, `npx -y @mcp/server-postgres`). Лучше всего подходит для баз данных, файловых систем и локальных инструментов.
-- **SSE** — подключается к удалённым MCP-серверам по HTTP+SSE. Лучше всего подходит для облачных интеграций.
+- **Stdio** — запускает MCP-сервер как изолированный дочерний процесс через E2B (`sbx exec mcp-base <cmd>`). Лучше всего для баз данных, файловых систем и локальных инструментов. Массив команд оборачивается сервисом автоматически.
+- **SSE** — подключается к удалённым MCP-серверам по HTTP+SSE (протокол MCP 2024-11-05).
+- **HTTP** — подключается к современным серверам через Streamable HTTP (протокол MCP 2025-03-26). Например, Context7.
 
 ```bash
-# 1. Регистрируем MCP-сервер PostgreSQL
-curl -X POST http://localhost:8080/api/mcp-servers \
+# 1. Создаём MCP-сервер PostgreSQL в рамках улья
+#    Команда ["npx", ...] автоматически оборачивается в "sbx exec mcp-base npx ..."
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
   -H "Content-Type: application/json" \
   -d '{
     "name": "postgres-analytics",
     "transport": "stdio",
-    "command": "npx -y @modelcontextprotocol/server-postgres postgres://user:pass@localhost/db",
+    "command": ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://user:pass@localhost/db"],
     "active": true
   }'
 
-# 2. Привязываем к улью
-curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
-  -H "Content-Type: application/json" \
-  -d '{"mcp_server_id": "{server-id}"}'
-
-# 3. Запускаем задачу — MCP-инструменты загружаются автоматически
+# 2. Запускаем задачу — MCP-инструменты загружаются автоматически
+#    Королева видит инструменты вроде "postgres_analytics_query" и назначает их специалистам
 curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
   -H "Content-Type: application/json" \
   -d '{"goal": "Выведи все заказы за прошлый месяц и подсчитай общую выручку"}'
+
+# MCP-сервер через HTTP (например, Context7)
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{"name": "context7", "transport": "http", "url": "https://mcp.context7.com/mcp", "active": true}'
 ```
 
 > Полная документация (на английском): [`docs/mcp-engine.md`](mcp-engine.md)
@@ -208,8 +211,8 @@ graph LR
 | **Список инструментов** | `GET /api/tools` | Посмотрите, что могут делать ИИ. |
 | **Реальное время** | `GET /ws` | WebSocket для мониторинга ИИ и одобрения действий. |
 | **Вебхуки** | `POST /api/webhooks/:slug` | Запускает внешнее событие. |
-| **MCP-серверы** | `GET/POST /api/mcp-servers` | Управление конфигурациями MCP-серверов. |
-| **MCP улья** | `GET/POST /api/colmeias/:id/mcp-servers` | Привязка / отвязка MCP-серверов от улья. |
+| **MCP улья** | `GET/POST /api/colmeias/:id/mcp-servers` | Создание / список MCP-серверов улья. |
+| **MCP (детали)** | `GET/PUT/DELETE /api/colmeias/:id/mcp-servers/:sid` | Просмотр, обновление или удаление MCP-сервера. |
 
 ---
 

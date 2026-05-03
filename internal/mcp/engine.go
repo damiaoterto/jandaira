@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 )
@@ -56,20 +57,25 @@ func NewEngine(t Transport) *Engine {
 // Start connects the transport and runs the MCP initialization handshake.
 // It must be called before any other method.
 func (e *Engine) Start(ctx context.Context) error {
+	log.Printf("[mcp-engine] calling transport.Start")
 	if err := e.transport.Start(ctx); err != nil {
 		return fmt.Errorf("mcp engine: transport start: %w", err)
 	}
+	log.Printf("[mcp-engine] transport.Start returned OK")
 
 	recvCh, err := e.transport.Receive()
 	if err != nil {
 		return fmt.Errorf("mcp engine: receive channel: %w", err)
 	}
+	log.Printf("[mcp-engine] recv channel ready, launching receiveLoop")
 
 	go e.receiveLoop(recvCh)
+	log.Printf("[mcp-engine] calling initialize")
 
 	if err := e.initialize(ctx); err != nil {
 		return fmt.Errorf("mcp engine: initialize: %w", err)
 	}
+	log.Printf("[mcp-engine] initialize OK")
 	return nil
 }
 

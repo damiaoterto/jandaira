@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
+	"strings"
 
 	"github.com/damiaoterto/jandaira/internal/mcp"
 	"github.com/damiaoterto/jandaira/internal/model"
@@ -154,18 +156,22 @@ func (s *mcpServerService) StartEnginesForColmeia(ctx context.Context, colmeiaID
 			return nil, nil, fmt.Errorf("mcp service: build transport for %q: %w", srv.Name, err)
 		}
 
+		log.Printf("INFO mcp: starting engine for %q (transport=%s)", srv.Name, srv.Transport)
+
 		engine := mcp.NewEngine(transport)
 		if err := engine.Start(ctx); err != nil {
 			closeEngines(allEngines)
 			return nil, nil, fmt.Errorf("mcp service: start engine for %q: %w", srv.Name, err)
 		}
+		log.Printf("INFO mcp: engine for %q initialized", srv.Name)
 
 		mcpTools, err := engine.ListTools(ctx)
 		if err != nil {
-			// Non-fatal: log and continue — the server may not support tools.
+			log.Printf("WARN mcp: engine for %q: tools/list failed: %v", srv.Name, err)
 			_ = engine.Close()
 			continue
 		}
+		log.Printf("INFO mcp: engine for %q: %d tool(s) discovered", srv.Name, len(mcpTools))
 
 		for _, t := range mcpTools {
 			allTools = append(allTools, mcp.NewMCPToolAdapter(engine, t, srv.Name))
@@ -239,18 +245,27 @@ var runtimeImage = map[string]string{
 }
 
 // wrapSandboxCommand transparently wraps a raw MCP command inside the configured
-// sandbox backend. If the command already starts with "sbx" or "docker" it is
-// returned unchanged (backward-compatible).
+// sandbox backend. If the command already starts with "docker" it is returned
+// unchanged. sbx commands are patched to ensure the -i (interactive stdin) flag
+// is present — required so the JSON-RPC engine can write to the child's stdin.
 //
 // Backend selection via MCP_SANDBOX env var:
 //   - "docker" → docker run -i --rm <image> <cmd...>
-//   - default  → sbx exec <cmd...>
+//   - default  → sbx exec -i mcp-base <cmd...>
+//
+// The npm global prefix must be pre-provisioned in the sandbox (see
+// scripts/setup-sandbox.sh) so node runtimes like npx work without a shell
+// wrapper. Running commands directly avoids an intermediate sh layer that
+// breaks stdin/stdout pipe forwarding through sbx.
 func wrapSandboxCommand(raw []string) []string {
 	if len(raw) == 0 {
 		return raw
 	}
-	if raw[0] == "sbx" || raw[0] == "docker" {
-		return raw // already wrapped
+	if raw[0] == "docker" {
+		return raw // already wrapped with -i by earlier code path
+	}
+	if raw[0] == "sbx" {
+		return ensureSbxInteractive(raw)
 	}
 
 	if os.Getenv("MCP_SANDBOX") == "docker" {
@@ -262,6 +277,33 @@ func wrapSandboxCommand(raw []string) []string {
 		return append(wrapped, raw...)
 	}
 
-	// default: sbx
-	return append([]string{"sbx", "exec"}, raw...)
+	// default: sbx exec -i mcp-base <cmd...>
+	// Node runtimes require the npm global prefix to exist (see setup-sandbox.sh).
+	// We run the command directly — no shell wrapper — so stdin/stdout pipes go
+	// straight to the process without an intermediate sh layer.
+	return append([]string{"sbx", "exec", "-i", "mcp-base"}, raw...)
 }
+
+// ensureSbxInteractive patches an already-wrapped sbx command to include the -i
+// flag (keep stdin open) if it is missing. This transparently upgrades commands
+// stored in the database before -i was introduced.
+func ensureSbxInteractive(cmd []string) []string {
+	if len(cmd) < 2 || cmd[1] != "exec" {
+		return cmd
+	}
+	// Scan flags between "sbx exec" and the sandbox name.
+	for _, arg := range cmd[2:] {
+		if arg == "-i" || arg == "--interactive" {
+			return cmd // already present
+		}
+		if !strings.HasPrefix(arg, "-") {
+			break // reached sandbox name — no -i found
+		}
+	}
+	// Insert -i right after "sbx exec".
+	result := make([]string, 0, len(cmd)+1)
+	result = append(result, cmd[0], cmd[1], "-i")
+	result = append(result, cmd[2:]...)
+	return result
+}
+

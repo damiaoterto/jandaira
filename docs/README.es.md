@@ -142,32 +142,35 @@ graph LR
 
 ## 🔌 Integraciones MCP (Model Context Protocol)
 
-Jandaira admite de forma nativa la conexión de cada colmena a uno o más servidores MCP externos. La relación es **muchos a muchos**: una colmena puede usar varios servidores MCP y un servidor puede compartirse entre varias colmenas.
+Jandaira admite de forma nativa la conexión de cada colmena a uno o más servidores MCP externos. Cada servidor MCP pertenece a exactamente una colmena (uno a muchos). Sus herramientas se descubren automáticamente y quedan disponibles para la Reina en cada despacho.
 
 **Transportes compatibles:**
-- **Stdio** — lanza el servidor MCP como subproceso (ej. `npx -y @mcp/server-postgres`). Ideal para bases de datos, sistemas de archivos y herramientas locales.
-- **SSE** — conecta a servidores MCP remotos vía HTTP+SSE. Ideal para integraciones en la nube.
+- **Stdio** — lanza el servidor MCP como subproceso sandboxado vía E2B (`sbx exec mcp-base <cmd>`). Ideal para bases de datos, sistemas de archivos y herramientas locales. El array de comandos es auto-envuelto por el servicio.
+- **SSE** — conecta a servidores MCP remotos vía HTTP+SSE (protocolo MCP 2024-11-05).
+- **HTTP** — conecta a servidores modernos vía Streamable HTTP (protocolo MCP 2025-03-26). Ej.: Context7.
 
 ```bash
-# 1. Registra un servidor MCP de PostgreSQL
-curl -X POST http://localhost:8080/api/mcp-servers \
+# 1. Crea un servidor MCP de PostgreSQL dentro de una colmena
+#    El comando ["npx", ...] se auto-envuelve como "sbx exec mcp-base npx ..."
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
   -H "Content-Type: application/json" \
   -d '{
     "name": "postgres-analytics",
     "transport": "stdio",
-    "command": "npx -y @modelcontextprotocol/server-postgres postgres://user:pass@localhost/db",
+    "command": ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://user:pass@localhost/db"],
     "active": true
   }'
 
-# 2. Asócialo a una colmena
-curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
-  -H "Content-Type: application/json" \
-  -d '{"mcp_server_id": "{server-id}"}'
-
-# 3. Despacha — las herramientas MCP se cargan automáticamente
+# 2. Despacha — las herramientas MCP se cargan automáticamente
+#    La Reina ve herramientas como "postgres_analytics_query" y las asigna a especialistas
 curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
   -H "Content-Type: application/json" \
   -d '{"goal": "Lista los pedidos del último mes y calcula el ingreso total"}'
+
+# Servidor MCP vía HTTP (ej.: Context7)
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{"name": "context7", "transport": "http", "url": "https://mcp.context7.com/mcp", "active": true}'
 ```
 
 > Documentación completa (en inglés): [`docs/mcp-engine.md`](mcp-engine.md)
@@ -208,8 +211,8 @@ graph LR
 | **Listar Herramientas** | `GET /api/tools` | Mira lo que las IAs pueden hacer. |
 | **Tiempo Real** | `GET /ws` | WebSocket para seguir a las IAs y aprobar acciones. |
 | **Webhooks** | `POST /api/webhooks/:slug` | Dispara un evento externo. |
-| **Servidores MCP** | `GET/POST /api/mcp-servers` | Gestiona configuraciones de servidores MCP. |
-| **MCP de la colmena** | `GET/POST /api/colmeias/:id/mcp-servers` | Asocia / desconecta servidores MCP de una colmena. |
+| **MCP de la colmena** | `GET/POST /api/colmeias/:id/mcp-servers` | Crea / lista servidores MCP de una colmena. |
+| **MCP (detalle)** | `GET/PUT/DELETE /api/colmeias/:id/mcp-servers/:sid` | Consulta, actualiza o elimina un servidor MCP. |
 
 ---
 

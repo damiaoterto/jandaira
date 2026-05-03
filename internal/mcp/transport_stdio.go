@@ -73,7 +73,11 @@ func (t *StdioTransport) Start(_ context.Context) error {
 
 // Send writes a JSON-RPC message followed by a newline to the child's stdin.
 func (t *StdioTransport) Send(_ context.Context, msg []byte) error {
+	log.Printf("[mcp-stdio] >>> send (%d bytes): %.200s", len(msg), msg)
 	_, err := t.stdin.Write(append(msg, '\n'))
+	if err != nil {
+		log.Printf("[mcp-stdio] >>> send error: %v", err)
+	}
 	return err
 }
 
@@ -103,6 +107,7 @@ func (t *StdioTransport) readLoop() {
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1 MiB max line
 	for scanner.Scan() {
 		line := scanner.Bytes()
+		log.Printf("[mcp-stdio] <<< recv raw (%d bytes): %.200s", len(line), line)
 		if len(line) == 0 {
 			continue
 		}
@@ -115,6 +120,10 @@ func (t *StdioTransport) readLoop() {
 		copy(cp, line)
 		t.outChan <- cp
 	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("[mcp-stdio] <<< scanner error: %v", err)
+	}
+	log.Printf("[mcp-stdio] <<< readLoop exited (stdout closed)")
 }
 
 // stderrLogger forwards MCP server stderr to the Go logger.
