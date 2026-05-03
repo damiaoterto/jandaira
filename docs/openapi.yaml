@@ -56,6 +56,11 @@ tags:
       the document is saved to disk only and a `201` is still returned with `chunks: 0`.
   - name: Catalog
     description: Tools and agents catalog
+  - name: MCP
+    description: |
+      Model Context Protocol (MCP) Server integrations scoped to a hive.
+      Each hive owns its MCP servers (one-to-many). MCP Servers expose external
+      tools dynamically to the swarm during dispatch.
   - name: WebSocket
     description: Real-time event stream
 
@@ -1778,6 +1783,169 @@ paths:
         '400':
           description: WebSocket upgrade failed
 
+  /api/colmeias/{id}/mcp-servers:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+
+    get:
+      tags: [MCP]
+      summary: List MCP servers for a hive
+      responses:
+        '200':
+          description: MCP server list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mcp_servers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MCPServer'
+                  total:
+                    type: integer
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [MCP]
+      summary: Create an MCP server inside a hive
+      description: |
+        Creates a new MCP server configuration owned by the hive.
+        For `stdio` transport, `command` accepts either a raw runtime command
+        (e.g. `["npx", "-y", "@mcp/server-X"]`) or an already-wrapped sandbox
+        command. Raw commands are automatically wrapped as `sbx exec mcp-base <cmd>`
+        (default) or `docker run -i --rm <image> <cmd>` (when `MCP_SANDBOX=docker`).
+        The server name must be unique within the hive.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMCPServerRequest'
+            examples:
+              context7_http:
+                summary: Context7 — Streamable HTTP (modern servers)
+                value:
+                  name: "context7"
+                  transport: "http"
+                  url: "https://mcp.context7.com/mcp"
+                  active: true
+              postgres_sbx:
+                summary: PostgreSQL via sbx sandbox (stdio) — raw command auto-wrapped
+                value:
+                  name: "postgres-analytics"
+                  transport: "stdio"
+                  command: ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://user:pass@db:5432/analytics"]
+                  active: true
+              remote_sse:
+                summary: Legacy SSE server with auth header
+                value:
+                  name: "github-mcp"
+                  transport: "sse"
+                  url: "https://mcp.github.example.com/sse"
+                  env_vars:
+                    Authorization: "Bearer ghp_xxxxxxxxxxxx"
+                  active: true
+      responses:
+        '201':
+          description: MCP server created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  mcp_server:
+                    $ref: '#/components/schemas/MCPServer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/colmeias/{id}/mcp-servers/{serverId}:
+    parameters:
+      - $ref: '#/components/parameters/ColmeiaID'
+      - name: serverId
+        in: path
+        required: true
+        description: MCP Server UUID
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      tags: [MCP]
+      summary: Get a single MCP server
+      responses:
+        '200':
+          description: MCP server record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPServer'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      tags: [MCP]
+      summary: Update an MCP server
+      description: Replaces all mutable fields. Changes take effect on the next dispatch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMCPServerRequest'
+      responses:
+        '200':
+          description: MCP server updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  mcp_server:
+                    $ref: '#/components/schemas/MCPServer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [MCP]
+      summary: Delete an MCP server from a hive
+      responses:
+        '200':
+          description: MCP server deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   schemas:
     SetupRequest:
@@ -2437,6 +2605,108 @@ components:
         secret:
           type: string
           example: "my-secret-key"
+        active:
+          type: boolean
+          default: true
+
+    MCPServer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "c4d5e6f7-a8b9-0123-cdef-456789abcdef"
+        colmeia_id:
+          type: string
+          format: uuid
+          description: ID of the hive this server belongs to.
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        name:
+          type: string
+          description: Unique within the hive.
+          example: "postgres-analytics"
+        transport:
+          type: string
+          enum: [stdio, sse, http]
+          description: |
+            - `stdio` — subprocess via `sbx` or `docker run` (sandboxed locally).
+            - `sse`   — legacy HTTP+SSE (MCP spec 2024-11-05). URL must be the exact SSE endpoint.
+            - `http`  — Streamable HTTP (MCP spec 2025-03-26). Used by modern servers like Context7.
+          example: "stdio"
+        command:
+          type: array
+          items:
+            type: string
+          description: |
+            argv for `stdio` transport. Send either a raw runtime command or a
+            pre-wrapped sandbox command:
+            - Raw: `["npx", "-y", "@mcp/server-X"]` — auto-wrapped to `["sbx", "exec", "mcp-base", "npx", ...]`
+            - Pre-wrapped sbx: `["sbx", "exec", "mcp-base", "npx", ...]`
+            - Docker: `["docker", "run", "-i", "--rm", "node:22-alpine", "npx", ...]`
+            Dangerous flags (`--privileged`, `--network=host`, etc.) are rejected.
+          example: ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://..."]
+        url:
+          type: string
+          description: |
+            Exact endpoint URL for `sse` or `http` transports.
+            - `sse`: the SSE stream URL (e.g. `https://mcp.example.com/sse`).
+            - `http`: the Streamable HTTP endpoint (e.g. `https://mcp.context7.com/mcp`).
+          example: "https://mcp.context7.com/mcp"
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            For `stdio`: extra environment variables injected into the subprocess.
+            For `sse`/`http`: HTTP headers forwarded with every request (e.g. `Authorization`).
+        active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateMCPServerRequest:
+      type: object
+      required: [name, transport]
+      properties:
+        name:
+          type: string
+          description: Unique within the hive.
+          example: "postgres-analytics"
+        transport:
+          type: string
+          enum: [stdio, sse, http]
+          description: |
+            - `stdio` — subprocess via `sbx` or `docker run`.
+            - `sse`   — legacy HTTP+SSE (MCP spec 2024-11-05).
+            - `http`  — Streamable HTTP (MCP spec 2025-03-26). Use for Context7 and modern servers.
+          example: "http"
+        command:
+          type: array
+          items:
+            type: string
+          description: |
+            argv for `stdio` transport. Send either a raw runtime command or a
+            pre-wrapped sandbox command:
+            - Raw: `["npx", "-y", "@mcp/server-X"]` — auto-wrapped to `["sbx", "exec", "mcp-base", "npx", ...]`
+            - Pre-wrapped sbx: `["sbx", "exec", "mcp-base", "npx", ...]`
+            - Docker: `["docker", "run", "-i", "--rm", "node:22-alpine", "npx", ...]`
+            Dangerous flags (`--privileged`, `--network=host`, etc.) are rejected.
+          example: ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://..."]
+        url:
+          type: string
+          description: |
+            Exact endpoint for `sse` or `http` transports.
+            Context7 example: `"https://mcp.context7.com/mcp"`
+          example: "https://mcp.context7.com/mcp"
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
         active:
           type: boolean
           default: true

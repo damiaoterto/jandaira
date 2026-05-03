@@ -148,6 +148,64 @@ func (b *GeminiBrain) Chat(ctx context.Context, messages []Message, tools []Tool
 	return text, toolCalls, report, nil
 }
 
+// ChatJSON enforces a JSON schema response via Gemini's native structured
+// output. The schema parameter must follow the OpenAI json_schema envelope
+// format (name, schema fields); the inner schema is converted to a Gemini
+// Schema and set on ResponseSchema.
+func (b *GeminiBrain) ChatJSON(ctx context.Context, messages []Message, schema map[string]interface{}) (string, ConsumptionReport, error) {
+	var systemInstruction *genai.Content
+	var contents []*genai.Content
+
+	for _, msg := range messages {
+		switch msg.Role {
+		case RoleSystem:
+			systemInstruction = genai.NewContentFromText(msg.Content, genai.RoleUser)
+		case RoleUser:
+			contents = append(contents, genai.NewContentFromText(msg.Content, genai.RoleUser))
+		case RoleAssistant:
+			if msg.Content != "" {
+				contents = append(contents, genai.NewContentFromText(msg.Content, "model"))
+			}
+		}
+	}
+
+	innerSchema, _ := schema["schema"].(map[string]any)
+	cfg := &genai.GenerateContentConfig{
+		ResponseMIMEType: "application/json",
+		ResponseSchema:   jsonSchemaToGemini(innerSchema),
+	}
+	if systemInstruction != nil {
+		cfg.SystemInstruction = systemInstruction
+	}
+	if b.MaxTokensFn != nil {
+		if n := b.MaxTokensFn(); n > 0 {
+			cfg.MaxOutputTokens = int32(n)
+		}
+	}
+
+	resp, err := b.client.Models.GenerateContent(ctx, b.Model, contents, cfg)
+	if err != nil {
+		return "", ConsumptionReport{}, fmt.Errorf("gemini json chat: %w", err)
+	}
+	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+		return "", ConsumptionReport{}, fmt.Errorf("gemini returned no candidates")
+	}
+
+	report := ConsumptionReport{}
+	if resp.UsageMetadata != nil {
+		report.PromptTokens = int(resp.UsageMetadata.PromptTokenCount)
+		report.CompletionTokens = int(resp.UsageMetadata.CandidatesTokenCount)
+		report.TotalTokens = int(resp.UsageMetadata.TotalTokenCount)
+	}
+
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if part.Text != "" {
+			return part.Text, report, nil
+		}
+	}
+	return "", report, fmt.Errorf("gemini json chat: no text in response")
+}
+
 func buildGeminiTools(tools []ToolDefinition) *genai.Tool {
 	fns := make([]*genai.FunctionDeclaration, 0, len(tools))
 	for _, t := range tools {

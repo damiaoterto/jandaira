@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
-	"time"
+	"regexp"
+	"strings"
 )
 
 const openRouterBaseURL = "https://openrouter.ai/api/v1/chat/completions"
@@ -31,12 +33,14 @@ type OpenRouterBrain struct {
 	Client         *http.Client
 }
 
-// NewOpenRouterBrain creates a new OpenRouterBrain with a sensible HTTP timeout.
+// NewOpenRouterBrain creates a new OpenRouterBrain.
+// No client-level timeout is set — deadline is controlled by the caller's context
+// (typically the 10-minute workflow context), which allows slow models to respond.
 func NewOpenRouterBrain(apiKey, model string) *OpenRouterBrain {
 	return &OpenRouterBrain{
 		APIKey: apiKey,
 		Model:  model,
-		Client: &http.Client{Timeout: 90 * time.Second},
+		Client: &http.Client{},
 	}
 }
 
@@ -170,7 +174,74 @@ func (b *OpenRouterBrain) Chat(ctx context.Context, messages []Message, tools []
 		})
 	}
 
-	return msg.Content, toolCalls, report, nil
+	// Some models (e.g. DeepSeek via OpenRouter) embed tool calls as DSML text
+	// in the content field instead of returning structured tool_calls.
+	content := msg.Content
+	if len(toolCalls) == 0 && strings.Contains(content, "DSML") {
+		content, toolCalls = parseDSMLToolCalls(content, tools)
+		log.Printf("[openrouter] DSML parse: extracted %d tool call(s)", len(toolCalls))
+	}
+
+	return content, toolCalls, report, nil
+}
+
+// dsml* regexes parse tool calls embedded as DSML markup in model text output.
+// Matches both fullwidth ｜ (U+FF5C) and ASCII | characters.
+var (
+	dsmlBlockRe  = regexp.MustCompile(`(?s)<[｜|]{2}DSML[｜|]{2}tool_calls>(.*?)</[｜|]{2}DSML[｜|]{2}tool_calls>`)
+	dsmlInvokeRe = regexp.MustCompile(`(?s)<[｜|]{2}DSML[｜|]{2}invoke\s+name="([^"]+)">(.*?)</[｜|]{2}DSML[｜|]{2}invoke>`)
+	dsmlParamRe  = regexp.MustCompile(`(?s)<[｜|]{2}DSML[｜|]{2}parameter\s+name="([^"]+)">(.*?)</[｜|]{2}DSML[｜|]{2}parameter>`)
+)
+
+// parseDSMLToolCalls extracts tool calls from DSML-embedded text.
+// Returns content with DSML blocks removed and the extracted ToolCalls.
+// Tool names are matched against registered tools: exact first, then suffix after "_".
+func parseDSMLToolCalls(content string, tools []ToolDefinition) (string, []ToolCall) {
+	blocks := dsmlBlockRe.FindAllStringSubmatch(content, -1)
+	if len(blocks) == 0 {
+		return content, nil
+	}
+
+	var calls []ToolCall
+	for i, block := range blocks {
+		for _, invoke := range dsmlInvokeRe.FindAllStringSubmatch(block[1], -1) {
+			name := matchDSMLToolName(invoke[1], tools)
+			params := make(map[string]interface{})
+			for _, param := range dsmlParamRe.FindAllStringSubmatch(invoke[2], -1) {
+				params[param[1]] = strings.TrimSpace(param[2])
+			}
+			argsJSON, _ := json.Marshal(params)
+			calls = append(calls, ToolCall{
+				ID:       fmt.Sprintf("dsml-%d-%d", i, len(calls)),
+				Name:     name,
+				ArgsJSON: string(argsJSON),
+			})
+		}
+	}
+
+	return strings.TrimSpace(dsmlBlockRe.ReplaceAllString(content, "")), calls
+}
+
+// matchDSMLToolName finds the registered tool name for a DSML-provided name.
+// Tries exact match first, then suffix match after the first "_" separator.
+// Both the DSML name and the registered suffix are normalised (hyphens → underscores)
+// before comparison so "resolve-library-id" matches "context7_resolve_library_id".
+func matchDSMLToolName(dsmlName string, tools []ToolDefinition) string {
+	for _, t := range tools {
+		if t.Name == dsmlName {
+			return t.Name
+		}
+	}
+	norm := strings.ReplaceAll(dsmlName, "-", "_")
+	for _, t := range tools {
+		if idx := strings.Index(t.Name, "_"); idx >= 0 {
+			suffix := t.Name[idx+1:]
+			if suffix == dsmlName || suffix == norm {
+				return t.Name
+			}
+		}
+	}
+	return dsmlName
 }
 
 // ChatJSON enforces a JSON schema response via OpenRouter's response_format.

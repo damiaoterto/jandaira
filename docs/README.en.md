@@ -140,6 +140,43 @@ graph LR
 
 ---
 
+## 🔌 MCP Integrations (Model Context Protocol)
+
+Jandaira natively supports connecting each hive to one or more external MCP servers. Each MCP server belongs to exactly one hive (one-to-many). Its tools are automatically discovered and exposed to the Queen on every dispatch.
+
+**Supported transports:**
+- **Stdio** — launches the MCP server as a sandboxed subprocess via E2B (`sbx exec mcp-base <cmd>`). Best for databases, filesystems, local tools. The command array is auto-wrapped by the service.
+- **SSE** — connects to remote MCP servers over HTTP+SSE (MCP spec 2024-11-05).
+- **HTTP** — connects to modern servers via Streamable HTTP (MCP spec 2025-03-26). E.g. Context7.
+
+```bash
+# 1. Create a PostgreSQL MCP server scoped to a hive
+#    Raw command ["npx", ...] is auto-wrapped as "sbx exec mcp-base npx ..."
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "postgres-analytics",
+    "transport": "stdio",
+    "command": ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgres://user:pass@localhost/db"],
+    "active": true
+  }'
+
+# 2. Dispatch — MCP tools load automatically
+#    Queen sees tools like "postgres_analytics_query" and assigns them to specialists
+curl -X POST http://localhost:8080/api/colmeias/{id}/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "List orders from last month and calculate total revenue"}'
+
+# Streamable HTTP MCP server (e.g. Context7)
+curl -X POST http://localhost:8080/api/colmeias/{id}/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{"name": "context7", "transport": "http", "url": "https://mcp.context7.com/mcp", "active": true}'
+```
+
+> Full documentation: [`docs/mcp-engine.md`](mcp-engine.md)
+
+---
+
 ## 🪝 Webhook Engine (Easy Integrations)
 
 You can connect Jandaira to GitHub, Slack, etc. The AI is automatically triggered when an event occurs.
@@ -174,6 +211,8 @@ graph LR
 | **List Tools** | `GET /api/tools` | See what the AIs can do. |
 | **Real-time** | `GET /ws` | WebSocket to monitor AIs and approve actions. |
 | **Webhooks** | `POST /api/webhooks/:slug` | Triggers an external event. |
+| **Hive MCP** | `GET/POST /api/colmeias/:id/mcp-servers` | Create / list MCP servers for a hive. |
+| **MCP (detail)** | `GET/PUT/DELETE /api/colmeias/:id/mcp-servers/:sid` | Get, update, or delete an MCP server. |
 
 ---
 

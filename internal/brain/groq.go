@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
-	"time"
+	"strings"
 )
 
 const groqBaseURL = "https://api.groq.com/openai/v1/chat/completions"
@@ -13,18 +14,20 @@ const groqBaseURL = "https://api.groq.com/openai/v1/chat/completions"
 // GroqBrain implements Brain using the Groq LPU inference API, which exposes
 // an OpenAI-compatible interface.
 type GroqBrain struct {
-	APIKey    string
-	Model     string
+	APIKey      string
+	Model       string
 	MaxTokensFn func() int // nil = let the API use its default
-	Client    *http.Client
+	Client      *http.Client
 }
 
-// NewGroqBrain creates a new GroqBrain with a sensible HTTP timeout.
+// NewGroqBrain creates a new GroqBrain. No client-level timeout is set —
+// deadline is controlled by the caller's context (typically the 10-minute
+// workflow context), which allows slow models (e.g. DeepSeek-R1) to respond.
 func NewGroqBrain(apiKey, model string) *GroqBrain {
 	return &GroqBrain{
 		APIKey: apiKey,
 		Model:  model,
-		Client: &http.Client{Timeout: 60 * time.Second},
+		Client: &http.Client{},
 	}
 }
 
@@ -126,7 +129,14 @@ func (b *GroqBrain) Chat(ctx context.Context, messages []Message, tools []ToolDe
 		})
 	}
 
-	return msg.Content, toolCalls, report, nil
+	// Groq hosts DeepSeek models which may embed tool calls as DSML text.
+	content := msg.Content
+	if len(toolCalls) == 0 && strings.Contains(content, "DSML") {
+		content, toolCalls = parseDSMLToolCalls(content, tools)
+		log.Printf("[groq] DSML parse: extracted %d tool call(s)", len(toolCalls))
+	}
+
+	return content, toolCalls, report, nil
 }
 
 // ChatJSON enforces JSON output via Groq's response_format parameter.
