@@ -62,11 +62,14 @@ func httpDoWithRetry(ctx context.Context, client *http.Client, newReq func() (*h
 	return nil, lastErr
 }
 
+// NewOpenAIBrain creates a new OpenAIBrain. No client-level timeout is set —
+// deadline is controlled by the caller's context (typically the 10-minute
+// workflow context), which allows reasoning models (o1, o3) to respond.
 func NewOpenAIBrain(apiKey string, model string) *OpenAIBrain {
 	return &OpenAIBrain{
 		APIKey: apiKey,
 		Model:  model,
-		Client: &http.Client{Timeout: 60 * time.Second},
+		Client: &http.Client{},
 	}
 }
 

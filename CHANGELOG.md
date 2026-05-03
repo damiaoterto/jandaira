@@ -10,6 +10,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ### Added
 
+- **`GeminiBrain` implements `StructuredBrain`** (`internal/brain/gemini.go`): added `ChatJSON` method using Gemini's native structured output (`ResponseMIMEType: "application/json"` + `ResponseSchema`). The Queen now uses structured output for swarm planning when Gemini is the active brain, instead of falling back to regex-based JSON sanitization.
+
+- **DSML tool-call fallback for Groq** (`internal/brain/groq.go`): Groq hosts DeepSeek models (e.g. DeepSeek-R1) that embed tool calls as DSML markup in the content field instead of returning API-level `tool_calls`. `GroqBrain.Chat` now applies the same `parseDSMLToolCalls` fallback used by `OpenRouterBrain` when `tool_calls` is empty and the content contains `"DSML"`.
+
+### Fixed
+
+- **MCP stdio commands stored with sandbox wrapper** (`internal/service/mcp_server.go`): `Create` and `Update` called `wrapSandboxCommand` before persisting, so the `sbx exec -i mcp-base …` prefix was written to the database. Subsequent updates doubled the prefix. Fixed: `stripSandboxWrapper` is now called before persistence; `wrapSandboxCommand` is applied only in `buildTransport` at connection time. Both `sbx` and `docker run` wrappers are stripped/re-applied transparently.
+
+- **MCP tool names with hyphens broke LLM tool invocation** (`internal/mcp/adapter.go`): `MCPToolAdapter.Name()` sanitized only the server-name prefix, leaving the tool name part unsanitised (e.g. `context7_resolve-library-id`). LLMs struggled to reproduce hyphenated names reliably in structured outputs. Both parts are now fully sanitised so the qualified name is always underscore-only (e.g. `context7_resolve_library_id`).
+
+- **DSML-parsed tool names not resolved in Queen** (`internal/swarm/queen.go`): when a model returned DSML-embedded tool calls, the parsed name (e.g. `"resolve-library-id"`) did not match any registered tool key. Added suffix-match fallback with hyphen-normalisation so `"resolve-library-id"` resolves to `"context7_resolve_library_id"`, mirroring the logic in `matchDSMLToolName`.
+
+- **Specialist received empty tool list when `AllowedTools` was unresolvable** (`internal/swarm/queen.go`): if the Queen's planning LLM listed tool names that no longer matched after sanitisation, `availableTools` was empty and the specialist had no tools. Added safety net: when `availableTools` is empty after resolving `AllowedTools`, all group-scoped tools (e.g. MCP adapters) are injected automatically so the specialist can still function.
+
+- **`context deadline exceeded` during MCP workflows** (`internal/brain/open_router.go`, `internal/brain/groq.go`, `internal/brain/open_ai.go`): all three HTTP-based brains had a hard client-level timeout (90 s for OpenRouter, 60 s for Groq and OpenAI) that fired before slow models (DeepSeek, o1, o3) could respond. Removed the client-level `Timeout` from all three; deadline is now controlled exclusively by the caller's context (typically the 10-minute workflow context).
+
+### Changed
+
+- **`OpenRouterBrain` DSML log reduced** (`internal/brain/open_router.go`): the per-call log that included 150-character content previews replaced by a single count line (`[openrouter] DSML parse: extracted N tool call(s)`). The "no tool_calls, no DSML" noise log removed entirely.
+
+- **MCP Engine `ListTools` log removed** (`internal/mcp/engine.go`): the per-tool `inputSchema` dump logged on every `tools/list` call removed; it was verbose at startup and not useful in production.
+
+- **Queen per-iteration log removed** (`internal/swarm/queen.go`): the `🔍 [specialist] iter=N tokens=N toolCalls=N contentLen=N` line logged on every LLM turn removed; nectar accounting and tool-call counts are still tracked internally.
+
+### Added
+
 - **MCP Engine** (`internal/mcp/`, `internal/model/mcp_server.go`, `internal/repository/mcp_server.go`, `internal/service/mcp_server.go`, `internal/api/mcp_handler.go`): full Model Context Protocol client implementation. Colmeias can now connect to one or more external MCP servers (many-to-many). Two transports supported:
   - **Stdio** (`transport_stdio.go`): launches the MCP server as a child process (e.g. `npx -y @mcp/server-postgres`) and communicates via newline-delimited JSON-RPC over stdin/stdout. Suitable for local tools, databases, filesystems.
   - **SSE** (`transport_sse.go`): connects to a remote HTTP+SSE server. Client GETs `/sse`, receives the `endpoint` event, then POSTs JSON-RPC requests to that URL. Supports `Authorization` and custom headers via `env_vars`.

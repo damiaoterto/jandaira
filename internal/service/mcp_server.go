@@ -46,8 +46,8 @@ func (s *mcpServerService) Create(colmeiaID, name, transport string, command []s
 		return nil, err
 	}
 	if transport == model.MCPTransportStdio {
-		command = wrapSandboxCommand(command)
-		if err := validateCommand(command); err != nil {
+		command = stripSandboxWrapper(command)
+		if err := validateCommand(wrapSandboxCommand(command)); err != nil {
 			return nil, err
 		}
 	}
@@ -91,8 +91,8 @@ func (s *mcpServerService) Update(id, name, transport string, command []string, 
 		return nil, err
 	}
 	if transport == model.MCPTransportStdio {
-		command = wrapSandboxCommand(command)
-		if err := validateCommand(command); err != nil {
+		command = stripSandboxWrapper(command)
+		if err := validateCommand(wrapSandboxCommand(command)); err != nil {
 			return nil, err
 		}
 	}
@@ -189,7 +189,7 @@ func buildTransport(srv *model.MCPServer) (mcp.Transport, error) {
 		if len(srv.Command) == 0 {
 			return nil, fmt.Errorf("stdio transport requires a non-empty command")
 		}
-		return mcp.NewStdioTransport(srv.Command, srv.EnvSlice()), nil
+		return mcp.NewStdioTransport(wrapSandboxCommand(srv.Command), srv.EnvSlice()), nil
 
 	case model.MCPTransportSSE:
 		if srv.URL == "" {
@@ -230,6 +230,56 @@ func validateTransport(t string) error {
 // stdio MCP servers run inside an isolated sandbox.
 func validateCommand(command []string) error {
 	return security.ValidateSbxCommand(command)
+}
+
+// stripSandboxWrapper removes a known sandbox prefix from a command so only the
+// raw user command is stored in the database. This is the inverse of
+// wrapSandboxCommand and handles both sbx and docker wrappers.
+//
+// Examples:
+//
+//	["sbx", "exec", "-i", "mcp-base", "npx", ...] → ["npx", ...]
+//	["docker", "run", "-i", "--rm", "node:22-alpine", "npx", ...] → ["npx", ...]
+//	["npx", ...] → ["npx", ...] (no-op)
+func stripSandboxWrapper(cmd []string) []string {
+	if len(cmd) == 0 {
+		return cmd
+	}
+	switch cmd[0] {
+	case "sbx":
+		// sbx exec [-i|--interactive] <sandbox-name> <raw...>
+		if len(cmd) < 2 || cmd[1] != "exec" {
+			return cmd
+		}
+		i := 2
+		for i < len(cmd) && strings.HasPrefix(cmd[i], "-") {
+			i++ // skip flags
+		}
+		i++ // skip sandbox name
+		if i >= len(cmd) {
+			return cmd
+		}
+		return cmd[i:]
+	case "docker":
+		// docker run [flags...] <image> <raw...>
+		if len(cmd) < 2 || cmd[1] != "run" {
+			return cmd
+		}
+		i := 2
+		for i < len(cmd) && strings.HasPrefix(cmd[i], "-") {
+			if cmd[i] == "--mount" || cmd[i] == "-v" || cmd[i] == "-e" {
+				i += 2 // flag + value
+			} else {
+				i++
+			}
+		}
+		i++ // skip image
+		if i >= len(cmd) {
+			return cmd
+		}
+		return cmd[i:]
+	}
+	return cmd
 }
 
 // runtimeImage maps a well-known CLI runtime to a minimal Docker image.

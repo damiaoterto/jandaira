@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -178,6 +179,7 @@ func (b *OpenRouterBrain) Chat(ctx context.Context, messages []Message, tools []
 	content := msg.Content
 	if len(toolCalls) == 0 && strings.Contains(content, "DSML") {
 		content, toolCalls = parseDSMLToolCalls(content, tools)
+		log.Printf("[openrouter] DSML parse: extracted %d tool call(s)", len(toolCalls))
 	}
 
 	return content, toolCalls, report, nil
@@ -221,17 +223,22 @@ func parseDSMLToolCalls(content string, tools []ToolDefinition) (string, []ToolC
 }
 
 // matchDSMLToolName finds the registered tool name for a DSML-provided name.
-// Tries exact match first, then suffix match after the first "_" separator
-// (e.g. DSML "resolve-library-id" → registered "context7_resolve-library-id").
+// Tries exact match first, then suffix match after the first "_" separator.
+// Both the DSML name and the registered suffix are normalised (hyphens → underscores)
+// before comparison so "resolve-library-id" matches "context7_resolve_library_id".
 func matchDSMLToolName(dsmlName string, tools []ToolDefinition) string {
 	for _, t := range tools {
 		if t.Name == dsmlName {
 			return t.Name
 		}
 	}
+	norm := strings.ReplaceAll(dsmlName, "-", "_")
 	for _, t := range tools {
-		if idx := strings.Index(t.Name, "_"); idx >= 0 && t.Name[idx+1:] == dsmlName {
-			return t.Name
+		if idx := strings.Index(t.Name, "_"); idx >= 0 {
+			suffix := t.Name[idx+1:]
+			if suffix == dsmlName || suffix == norm {
+				return t.Name
+			}
 		}
 	}
 	return dsmlName

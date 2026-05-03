@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -22,10 +23,10 @@ func NewMCPToolAdapter(engine *Engine, t Tool, serverName string) *MCPToolAdapte
 }
 
 // Name returns the qualified tool name in the form "{serverName}_{toolName}".
-// Non-alphanumeric characters are replaced with underscores to satisfy LLM
-// tool-name constraints.
+// Both parts are fully sanitized (hyphens → underscores) so LLMs can reproduce
+// the name reliably in structured outputs.
 func (a *MCPToolAdapter) Name() string {
-	return sanitizeName(a.serverName) + "_" + a.mcpTool.Name
+	return sanitizeName(a.serverName) + "_" + sanitizeName(a.mcpTool.Name)
 }
 
 // Description exposes the MCP tool description with a server prefix so
@@ -57,12 +58,15 @@ func (a *MCPToolAdapter) Execute(ctx context.Context, argsJSON string) (string, 
 		}
 	}
 
+	log.Printf("[mcp-adapter] calling tool %q args=%s", a.Name(), argsJSON)
 	result, err := a.engine.CallTool(ctx, a.mcpTool.Name, args)
 	if err != nil {
+		log.Printf("[mcp-adapter] tool %q failed: %v", a.Name(), err)
 		return "", fmt.Errorf("mcp adapter %q: call failed: %w", a.Name(), err)
 	}
 
 	text := extractText(result.Content)
+	log.Printf("[mcp-adapter] tool %q returned %d bytes (isError=%v)", a.Name(), len(text), result.IsError)
 
 	if result.IsError {
 		return "", fmt.Errorf("mcp tool %q returned error: %s", a.Name(), text)

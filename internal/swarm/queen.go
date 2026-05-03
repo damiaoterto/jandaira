@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -237,11 +238,9 @@ func (q *Queen) AssembleSwarmForGroup(ctx context.Context, goal string, maxWorke
 		return nil, fmt.Errorf("Queen generated an invalid plan (JSON error): %w\nGenerated response: %s", err, rawJSON)
 	}
 
-	var workerNames []string
 	for _, spec := range plan.Specialists {
-		workerNames = append(workerNames, spec.Name)
+		log.Printf("[queen] specialist %q allowedTools=%v", spec.Name, spec.AllowedTools)
 	}
-	q.logf("👑 Swarm planned with %d super-trained bees: %s", len(plan.Specialists), strings.Join(workerNames, " -> "))
 
 	return plan.Specialists, nil
 }
@@ -348,8 +347,30 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 			availableTools = append(availableTools, brain.ToolDefinition{
 				Name: t.Name(), Description: t.Description(), Parameters: t.Parameters(),
 			})
+		} else {
+			log.Printf("[queen] specialist %q: tool %q not found (registered=%v)", spec.Name, toolName, toolKeyList(allTools))
 		}
 	}
+	// Safety net: if queen assigned no tools but group-level MCP tools exist,
+	// inject them so the specialist can use documentation tools.
+	if len(availableTools) == 0 {
+		q.mu.RLock()
+		for _, t := range q.GroupTools[groupID] {
+			availableTools = append(availableTools, brain.ToolDefinition{
+				Name: t.Name(), Description: t.Description(), Parameters: t.Parameters(),
+			})
+		}
+		q.mu.RUnlock()
+		if len(availableTools) > 0 {
+			log.Printf("[queen] specialist %q: empty AllowedTools, injecting %d group tools", spec.Name, len(availableTools))
+		}
+	}
+
+	toolNames := make([]string, len(availableTools))
+	for i, t := range availableTools {
+		toolNames[i] = t.Name
+	}
+	log.Printf("[queen] specialist %q availableTools=%v", spec.Name, toolNames)
 
 	taskContext, err := security.Open(sessionKey, encryptedTaskContext)
 	if err != nil {
@@ -400,7 +421,25 @@ func (q *Queen) runSpecialist(ctx context.Context, groupID string, spec Speciali
 			t, exists := allTools[call.Name]
 			var toolResult string
 
+			// Fallback: DSML-parsed names may lack the server prefix or use hyphens
+			// (e.g. "resolve-library-id" → "context7_resolve_library_id").
 			if !exists {
+				norm := strings.ReplaceAll(call.Name, "-", "_")
+				for k, v := range allTools {
+					if idx := strings.Index(k, "_"); idx >= 0 {
+						suffix := k[idx+1:]
+						if suffix == call.Name || suffix == norm {
+							t, exists = v, true
+							log.Printf("[queen] specialist %q: resolved DSML tool %q → %q", spec.Name, call.Name, k)
+							call.Name = k
+							break
+						}
+					}
+				}
+			}
+
+			if !exists {
+				q.logf("⚠️  [%s] Tool not found: %q (allTools=%v)", spec.Name, call.Name, toolKeyList(allTools))
 				toolResult = "Error: tool not found."
 			} else {
 				approved := true
@@ -529,6 +568,15 @@ func (q *Queen) graphContextForGoal(ctx context.Context, goal string) string {
 	}
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+// toolKeyList returns the names of all tools in a map (for debug logging).
+func toolKeyList(tools map[string]tool.Tool) []string {
+	keys := make([]string, 0, len(tools))
+	for k := range tools {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // sanitizeJSONEscapes replaces invalid JSON escape sequences (e.g. \( \$ \!)
