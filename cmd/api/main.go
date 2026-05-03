@@ -125,6 +125,7 @@ func main() {
 	queen.EquipTool(&tool.SearchMemoryTool{Brain: embedBrain, Honeycomb: honeycomb, Collection: swarmName})
 	queen.EquipTool(&tool.StoreMemoryTool{Brain: embedBrain, Honeycomb: honeycomb, Collection: swarmName})
 	queen.EquipTool(&tool.WebSearchTool{})
+	queen.EquipTool(&tool.FirecrawlTool{Vault: vault})
 
 	if cfg != nil {
 		queen.RegisterSwarm(swarmName, swarm.Policy{
