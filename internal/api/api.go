@@ -178,6 +178,15 @@ func (s *Server) Start() error {
 		api.GET("/tools", s.handleListTools)
 		api.GET("/agents", s.handleListAgents)
 
+		// Preconfigured tools — token management via encrypted vault
+		preconfigured := api.Group("/tools/preconfigured")
+		{
+			preconfigured.GET("", s.handleListPreconfiguredTools)
+			preconfigured.GET("/:tool", s.handleGetPreconfiguredToolStatus)
+			preconfigured.POST("/:tool", s.handleConfigurePreconfiguredTool)
+			preconfigured.DELETE("/:tool", s.handleDeletePreconfiguredToolConfig)
+		}
+
 		// Session routes
 		sessions := api.Group("/sessions")
 		{

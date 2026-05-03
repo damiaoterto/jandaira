@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	github.com/anthropics/anthropic-sdk-go v1.37.0
 	github.com/dgraph-io/badger/v4 v4.9.1
+	github.com/firecrawl/firecrawl/apps/go-sdk v1.2.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728

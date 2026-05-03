@@ -92,6 +92,28 @@ func (v *Vault) GetSecret(key string) (string, error) {
 	return val, nil
 }
 
+// DeleteSecret removes a secret from the vault by key.
+func (v *Vault) DeleteSecret(key string) error {
+	secrets := make(map[string]string)
+
+	if data, err := os.ReadFile(v.secretsFile); err == nil {
+		decrypted, err := Open(v.masterKey, string(data))
+		if err == nil {
+			_ = json.Unmarshal([]byte(decrypted), &secrets)
+		}
+	}
+
+	delete(secrets, key)
+
+	jsonBytes, _ := json.Marshal(secrets)
+	encrypted, err := Seal(v.masterKey, string(jsonBytes))
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(v.secretsFile, []byte(encrypted), 0600)
+}
+
 func GetDefaultVaultDir() string {
 	configDir, err := os.UserConfigDir()
 	if err != nil {

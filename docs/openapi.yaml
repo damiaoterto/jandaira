@@ -56,6 +56,11 @@ tags:
       the document is saved to disk only and a `201` is still returned with `chunks: 0`.
   - name: Catalog
     description: Tools and agents catalog
+  - name: PreconfiguredTools
+    description: |
+      Tools that require an external API key stored in the encrypted vault (AES-256-GCM).
+      The key is written to `~/.config/jandaira/.secrets/vault.enc` and never returned by any endpoint.
+      Use `POST /api/tools/preconfigured/{tool}` to save a key and `DELETE` to remove it.
   - name: WebSocket
     description: Real-time event stream
 
@@ -184,6 +189,149 @@ paths:
                       type: object
         '428':
           $ref: '#/components/responses/NotConfigured'
+
+  /api/tools/preconfigured:
+    get:
+      tags: [PreconfiguredTools]
+      summary: List preconfigured tools
+      description: |
+        Returns all tools that require an external API key, along with their current
+        configuration status. The `configured` field is `true` when a key is present
+        in the vault — the key itself is never returned.
+      responses:
+        '200':
+          description: Tool list with configuration status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tools:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PreconfiguredToolStatus'
+              example:
+                tools:
+                  - name: firecrawl
+                    description: "Web scraping and crawling via Firecrawl API"
+                    configured: false
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/tools/preconfigured/{tool}:
+    parameters:
+      - $ref: '#/components/parameters/ToolName'
+
+    get:
+      tags: [PreconfiguredTools]
+      summary: Get tool configuration status
+      description: |
+        Returns whether the given tool has an API key stored in the vault.
+        Returns `404` if the tool name is not in the supported registry.
+      responses:
+        '200':
+          description: Tool status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreconfiguredToolStatus'
+              example:
+                tool: firecrawl
+                description: "Web scraping and crawling via Firecrawl API"
+                configured: true
+        '404':
+          description: Tool not found in registry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "unknown tool: mytool"
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [PreconfiguredTools]
+      summary: Configure a tool (save API key)
+      description: |
+        Encrypts and stores the API key for the given tool in the local vault
+        (`~/.config/jandaira/.secrets/vault.enc`). Calling this endpoint again
+        overwrites the previous key. The key is never returned by any endpoint.
+
+        After saving, the tool becomes immediately available to the Queen without
+        restarting the server.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigureToolRequest'
+            examples:
+              firecrawl:
+                summary: Configure Firecrawl
+                value:
+                  api_key: "fc-your-api-key-here"
+      responses:
+        '200':
+          description: API key saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: "firecrawl API key configured successfully."
+        '400':
+          description: Missing api_key field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "api_key is required"
+        '404':
+          description: Tool not found in registry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "unknown tool: mytool"
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [PreconfiguredTools]
+      summary: Remove a tool's API key
+      description: |
+        Removes the API key for the given tool from the vault. After deletion, the
+        tool will return an error if invoked by an agent until a new key is provided.
+      responses:
+        '200':
+          description: API key removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: "firecrawl API key removed."
+        '404':
+          description: Tool not found in registry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "unknown tool: mytool"
+        '428':
+          $ref: '#/components/responses/NotConfigured'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/sessions:
     get:
@@ -2441,6 +2589,35 @@ components:
           type: boolean
           default: true
 
+    PreconfiguredToolStatus:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Tool identifier used in the URL path.
+          example: firecrawl
+        tool:
+          type: string
+          description: Tool identifier (returned by single-tool endpoint).
+          example: firecrawl
+        description:
+          type: string
+          description: Human-readable description of what the tool does.
+          example: "Web scraping and crawling via Firecrawl API"
+        configured:
+          type: boolean
+          description: "`true` when an API key is present in the vault."
+          example: true
+
+    ConfigureToolRequest:
+      type: object
+      required: [api_key]
+      properties:
+        api_key:
+          type: string
+          description: API key for the external service. Stored encrypted; never returned.
+          example: "fc-your-api-key-here"
+
     MessageResponse:
       type: object
       properties:
@@ -2519,6 +2696,16 @@ components:
       schema:
         type: string
       example: "monitor-deploy"
+
+    ToolName:
+      name: tool
+      in: path
+      required: true
+      description: Preconfigured tool name (must exist in the server registry).
+      schema:
+        type: string
+        enum: [firecrawl]
+      example: firecrawl
 
   responses:
     BadRequest:
